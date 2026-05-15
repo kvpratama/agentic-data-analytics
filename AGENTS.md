@@ -1,18 +1,34 @@
 ## Project Overview
 
-### TODO
+Multi-subagent EDA orchestrator using Deep Agents and a persistent IPython kernel. The system coordinates three specialized subagents to perform end-to-end data analysis:
+1. **Profiler**: Understands the dataset structure, types, and summary statistics.
+2. **Cleaner**: Fixes data quality issues based on the profile (handling missing values, types, etc.).
+3. **Analyst**: Performs deep-dive analysis, generates visualizations, and writes the final report.
+
+All subagents share a single IPython kernel, allowing them to build on each other's code and state.
 
 ---
 
 ## Tech Stack
 
-### TODO
+- **Runtime**: Python 3.12+
+- **Orchestration**: [LangGraph](https://github.com/langchain-ai/langgraph) & [Deep Agents](https://github.com/google-deepmind/deepagents)
+- **Execution**: `ipykernel` and `jupyter-client` for persistent code execution
+- **Data Science**: `pandas`, `scipy`, `matplotlib`, `seaborn`
+- **Models**: Anthropic (default), OpenAI, or Google GenAI via LangChain `init_chat_model`
+- **Environment**: `uv` for dependency management, `pydantic-settings` for configuration
 
 ---
 
 ## Project Structure
 
-### TODO
+- `agent.py`: Orchestrator logic and subagent definitions.
+- `config.py`: Centralized configuration and model initialization.
+- `tools/`: Core tools, including the persistent `code_executor`.
+- `skills/`: Domain-specific `SKILL.md` files for profiler, cleaner, and analyst roles.
+- `work/`: Ephemeral sandbox directories for each analysis run.
+- `dataset/`: Sample CSV files for testing.
+- `pyproject.toml`: Dependency and tool configuration (Ruff, Pytest).
 
 ---
 
@@ -51,7 +67,7 @@ uv add --dev <package>
 
 ### Environment Variables
 - All secrets and configuration come from `.env` via `python-dotenv`.
-- Access config only through the `Settings` object in `src/core/config.py` (Pydantic `BaseSettings`).
+- Access config only through the `Settings` object in `config.py` (Pydantic `BaseSettings`).
 - Never hardcode secrets, API keys, or connection strings.
 
 ---
