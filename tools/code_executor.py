@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import queue
 import re
+import time
 
 from jupyter_client.manager import KernelManager
 from langchain.tools import BaseTool
@@ -23,7 +24,18 @@ _NON_JSON_FLOAT_RE = re.compile(r"\b(NaN|-?Infinity)\b")
 
 
 def _sanitize_for_json(text: str) -> str:
-    """Replace ``NaN``/``Infinity`` tokens with JSON-safe lowercase variants."""
+    """Replace ``NaN``/``Infinity`` tokens with JSON-safe lowercase variants.
+
+    Some model providers reject the non-standard ``NaN`` and ``Infinity``
+    tokens that pandas and numpy emit. Lower-casing them makes the output
+    survive strict JSON encoders.
+
+    Args:
+        text: Raw text output captured from the kernel.
+
+    Returns:
+        The input text with ``NaN``/``Infinity`` tokens lower-cased.
+    """
     return _NON_JSON_FLOAT_RE.sub(lambda m: m.group(0).lower(), text)
 
 
@@ -44,9 +56,23 @@ class KernelSession:
         self._timeout = timeout
         self._km = KernelManager()
         self._km.start_kernel(cwd=work_dir)
-        self._client = self._km.client()
-        self._client.start_channels()
-        self._client.wait_for_ready(timeout=30)
+        client = None
+        try:
+            client = self._km.client()
+            client.start_channels()
+            client.wait_for_ready(timeout=30)
+        except BaseException:
+            if client is not None:
+                try:
+                    client.stop_channels()
+                except Exception:
+                    pass
+            try:
+                self._km.shutdown_kernel(now=True)
+            except Exception:
+                pass
+            raise
+        self._client = client
 
     def execute(self, code: str) -> str:
         """Execute ``code`` in the kernel and return collected output.
@@ -59,9 +85,18 @@ class KernelSession:
             return "KernelDeadError: restart required"
         msg_id = self._client.execute(code)
         outputs: list[str] = []
+        deadline = time.monotonic() + self._timeout
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._km.interrupt_kernel()
+                try:
+                    self._client.get_shell_msg(timeout=self._timeout)
+                except queue.Empty:
+                    pass
+                return f"TimeoutError: cell exceeded {self._timeout}s"
             try:
-                msg = self._client.get_iopub_msg(timeout=self._timeout)
+                msg = self._client.get_iopub_msg(timeout=remaining)
             except queue.Empty:
                 self._km.interrupt_kernel()
                 try:
@@ -81,8 +116,9 @@ class KernelSession:
                 outputs.append("\n".join(content["traceback"]))
             elif msg_type == "status" and content["execution_state"] == "idle":
                 break
+        shell_remaining = max(0.0, deadline - time.monotonic())
         try:
-            self._client.get_shell_msg(timeout=self._timeout)
+            self._client.get_shell_msg(timeout=shell_remaining)
         except queue.Empty:
             pass
         text = _sanitize_for_json("".join(outputs))

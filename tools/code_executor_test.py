@@ -7,6 +7,16 @@ from tools.code_executor import KernelSession, make_execute_python_tool
 
 @pytest.fixture
 def session(tmp_path):
+    """Yield a fresh ``KernelSession`` rooted at a temporary directory.
+
+    Args:
+        tmp_path: Pytest-provided per-test temporary directory used as the
+            kernel's working directory.
+
+    Yields:
+        A started ``KernelSession`` with a 10-second per-cell timeout. The
+        session is shut down automatically when the test finishes.
+    """
     s = KernelSession(work_dir=str(tmp_path), timeout=10)
     yield s
     s.shutdown()
@@ -43,6 +53,21 @@ def test_timeout_interrupts(tmp_path):
     s = KernelSession(work_dir=str(tmp_path), timeout=1)
     try:
         result = s.execute("while True: pass")
+        assert "TimeoutError" in result
+    finally:
+        s.shutdown()
+
+
+def test_timeout_interrupts_chatty(tmp_path):
+    """A loop that emits periodic iopub output still hits the per-cell timeout.
+
+    Guards against the per-message-timeout regression where each incoming
+    stream message would reset the timeout window, letting a chatty infinite
+    loop run indefinitely.
+    """
+    s = KernelSession(work_dir=str(tmp_path), timeout=1)
+    try:
+        result = s.execute("import time\nwhile True:\n    print('tick')\n    time.sleep(0.05)\n")
         assert "TimeoutError" in result
     finally:
         s.shutdown()
