@@ -18,19 +18,18 @@ import sys
 
 from deepagents import SubAgent, create_deep_agent
 from deepagents.backends import FilesystemBackend
-from dotenv import load_dotenv
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph.state import CompiledStateGraph
 from rich.console import Console
 from rich.panel import Panel
 
 from config import get_model
 from tools.code_executor import KernelSession, make_execute_python_tool
 
-load_dotenv()
-
 console = Console()
 
 
-def create_analytics_agent(root_dir: str, session: KernelSession):
+def create_analytics_agent(root_dir: str, session: KernelSession) -> CompiledStateGraph:
     """Build the Deep Agent orchestrator with profiler, cleaner, and analyst subagents.
 
     Args:
@@ -57,9 +56,11 @@ def create_analytics_agent(root_dir: str, session: KernelSession):
         "name": "profiler",
         "description": "Profiling agent",
         "system_prompt": (
-            "You are a data profiler. Load the 'profiling' skill for "
-            "methodology and snippets, then use execute_python to inspect "
-            "'dataset.csv' and write 'profile.json'.\n\n" + path_rules
+            "You are a data profiler. Your sole job is to inspect and describe "
+            "the dataset as-is — do not clean, transform, or analyse it. "
+            "Load the 'profiler' skill for the full methodology and judgement "
+            "guidelines, then use execute_python to inspect 'dataset.csv' and "
+            "write 'profile.json'.\n\n" + path_rules
         ),
         "model": model,
         "tools": [execute_python],
@@ -70,10 +71,12 @@ def create_analytics_agent(root_dir: str, session: KernelSession):
         "name": "cleaner",
         "description": "Cleaning agent",
         "system_prompt": (
-            "You are a data cleaner. Load the 'cleaning' skill for "
-            "methodology and snippets. Read 'profile.json' first, then use "
-            "execute_python to apply cleaning steps and overwrite "
-            "'dataset.csv'.\n\n" + path_rules
+            "You are a data cleaner. Your sole job is to fix data quality issues "
+            "identified in profile.json — do not analyse, summarise, or draw "
+            "conclusions about the data. Load the 'cleaner' skill for the full "
+            "methodology and judgement guidelines. Read 'profile.json' first, "
+            "then use execute_python to apply fixes to 'dataset.csv' in place "
+            "and write 'changes.json' logging every decision made.\n\n" + path_rules
         ),
         "model": model,
         "tools": [execute_python],
@@ -84,10 +87,13 @@ def create_analytics_agent(root_dir: str, session: KernelSession):
         "name": "analyst",
         "description": "Analyst agent",
         "system_prompt": (
-            "You are a data analyst. Load the 'analysis' skill for "
-            "methodology and snippets. Read the cleaned 'dataset.csv', run "
-            "analyses tied to the user's objective, save plots to 'plots/', "
-            "and write 'report.md'.\n\n" + path_rules
+            "You are a data analyst. Your sole job is to analyse and interpret "
+            "the cleaned data — do not re-clean or re-profile it. Load the "
+            "'analyst' skill for the full methodology and report structure. "
+            "Read 'dataset.csv' and 'changes.json', then produce 'report.md' "
+            "and save any plots to 'plots/'. If the orchestrator passed a "
+            "specific user question, lead the report with a direct answer to "
+            "it.\n\n" + path_rules
         ),
         "model": model,
         "tools": [execute_python],
@@ -98,16 +104,21 @@ def create_analytics_agent(root_dir: str, session: KernelSession):
 
     return create_deep_agent(
         model=model,
+        tools=[execute_python],
         system_prompt="""\
-You are the Data Analytics Orchestrator.
-Your goal is to coordinate a multi-step EDA workflow:
-1. Delegate to 'profiler' to understand the dataset.
-2. Delegate to 'cleaner' to fix data quality issues using the profiler's diagnosis.
-3. Delegate to 'analyst' to answer the user's objective and produce report.md.
-Use the 'task' tool to communicate with subagents.
-The final result should be a 'report.md' in the working directory.""",
+You are the Data Analytics Orchestrator. You have execute_python available directly
+and three subagents: profiler, cleaner, and analyst.
+
+Load the 'orchestrator' skill before deciding how to proceed. It contains your
+decision framework, routing guidance, and examples.
+
+Your goal is to satisfy the user's objective — which may be a specific question,
+an instruction, or a full EDA request — using whichever combination of tools and
+subagents is appropriate. The final deliverable is either a direct answer, a
+report.md, or both.""",
         subagents=[profiler, cleaner, analyst],
         backend=backend,
+        skills=["/skills/orchestrator_skills/"],
     )
 
 
@@ -118,7 +129,7 @@ async def main() -> None:
         sys.exit(1)
 
     csv_path = sys.argv[1]
-    objective = sys.argv[2]
+    objective = " ".join(sys.argv[2:])
 
     if not os.path.exists(csv_path):
         console.print(f"[red]Error: CSV file '{csv_path}' not found.[/red]")
@@ -149,7 +160,7 @@ async def main() -> None:
     session = KernelSession(work_dir=work_dir, timeout=60)
     try:
         agent = create_analytics_agent(work_dir, session)
-        config = {"configurable": {"work_dir": work_dir}}
+        config = RunnableConfig({"configurable": {"work_dir": work_dir}})
         async for chunk in agent.astream({"messages": [("user", objective)]}, config=config):
             if "model" in chunk:
                 msg = chunk["model"]["messages"][-1]
