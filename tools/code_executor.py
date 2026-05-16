@@ -10,7 +10,8 @@ import queue
 import re
 
 from jupyter_client.manager import KernelManager
-from langchain_core.tools import tool as _tool_decorator
+from langchain.tools import BaseTool
+from langchain.tools import tool as _tool_decorator
 
 _MAX_OUTPUT_CHARS = 10_000
 
@@ -38,7 +39,7 @@ class KernelSession:
         timeout: Per-cell wall-clock timeout in seconds.
     """
 
-    def __init__(self, work_dir: str, timeout: int = 60):
+    def __init__(self, work_dir: str, timeout: int = 60) -> None:
         self._work_dir = work_dir
         self._timeout = timeout
         self._km = KernelManager()
@@ -98,7 +99,7 @@ class KernelSession:
             self._km.shutdown_kernel(now=True)
 
 
-def make_execute_python_tool(session: KernelSession):
+def make_execute_python_tool(session: KernelSession) -> BaseTool:
     """Return an ``execute_python`` LangChain tool bound to ``session``."""
 
     @_tool_decorator
