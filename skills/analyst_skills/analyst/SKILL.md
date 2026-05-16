@@ -25,12 +25,15 @@ figures.
 
 - `dataset.csv` — the cleaned dataset
 - `changes.json` — the Cleaner's decision log; read this to understand what was fixed,
-  skipped, or winsorised before drawing conclusions about the data
+  skipped, or winsorised before drawing conclusions about the data.
+  **May not exist** if the orchestrator skipped the cleaning step. Treat its absence as
+  "dataset is raw — no cleaning performed" and proceed; do not error out.
 
 ## Workflow
 
-1. **Call 1 — Load**: read `dataset.csv` and `changes.json` into the kernel. Print shape
-   and a quick dtype summary to confirm what you're working with.
+1. **Call 1 — Load**: read `dataset.csv`, and `changes.json` if it exists (use
+   `os.path.exists` — set `changes = []` if missing). Print shape and a quick dtype
+   summary to confirm what you're working with.
 2. **Call 2 — Compute**: run the statistics and correlation checks needed to decide which
    conditional sections are warranted.
 3. **Call 3+ — Plot**: generate and save each plot as a PNG. One `execute_python` call
@@ -47,7 +50,8 @@ figures.
 One short paragraph covering:
 - What the dataset contains (infer from column names and values)
 - Shape after cleaning (rows × columns)
-- What the Cleaner changed (summarise `changes.json` in one sentence)
+- What the Cleaner changed (summarise `changes.json` in one sentence, or state
+  "no cleaning was performed" if `changes.json` is absent)
 
 #### 2. Key Findings
 3–5 bullet points in plain language. These should be the most actionable or surprising
@@ -69,6 +73,9 @@ A brief table summarising what the Cleaner did, drawn from `changes.json`:
 | revenue | skipped | legitimate extremes kept |
 
 Keep this section short — it's context, not analysis.
+
+If no cleaning was performed, replace the table with a single sentence:
+"Dataset analysed as-is; no cleaning step was run."
 
 ---
 

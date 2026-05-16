@@ -45,7 +45,7 @@ Splitting across three calls keeps each return value well under the 10 KB output
 - **Numeric distributions**: `df.describe()` (numeric cols only).
 - **Outliers (IQR)**: for each numeric column, count rows outside `[Q1 − 1.5×IQR, Q3 + 1.5×IQR]`.
 - **Duplicates**: `df.duplicated().sum()`.
-- **Whitespace**: for each string column, `df[col].str.strip().ne(df[col]).sum()`.
+- **Whitespace**: for each string column, `df[col].dropna().str.strip().ne(df[col].dropna()).sum()` (drop nulls on both sides so the count reflects only non-null mismatches).
 - **Castability**: for each object column, check if `pd.to_numeric(df[col], errors='coerce')` succeeds for ≥90% of non-null values.
 
 ## Diagnosis Rules
@@ -83,7 +83,7 @@ File: `profile.json` in the working directory.
     "drop column 'notes' (63% missing)",
     "fill 'age' with median",
     "cast 'revenue' to numeric",
-    "clip outliers in 'age' (3 rows beyond 1.5*IQR)",
+    "outliers detected in 'age' (3 rows beyond 1.5×IQR) — review before deciding to clip, winsorise, or keep",
     "drop constant column 'region'",
     "'id' looks like an ID column — confirm before using as a feature",
     "drop 5 duplicate rows",
@@ -98,8 +98,9 @@ Print to stdout: `"Profiled N rows × M cols; K issues found."`
 
 Two patterns that are commonly written wrong — use these exactly.
 
-**Whitespace check** — both sides must be `dropna()`'d first, otherwise the series lengths
-mismatch and the comparison silently returns all-False:
+**Whitespace check** — drop nulls on both sides first so null positions don't leak into
+the `.ne()` comparison and inflate (or otherwise distort) the affected-row count. The
+expression below must match the short rule in *What to Inspect* exactly so counts agree:
 
 ```python
 n = int(df[col].dropna().str.strip().ne(df[col].dropna()).sum())

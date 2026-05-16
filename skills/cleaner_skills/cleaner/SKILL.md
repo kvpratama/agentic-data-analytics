@@ -49,8 +49,8 @@ df.drop(columns=['X'], inplace=True)
 Impute missing values. Use the statistic computed **before** any other changes to `df`
 so earlier fixes don't shift the imputation value.
 ```python
-df['X'].fillna(df['X'].median(), inplace=True)   # numeric
-df['X'].fillna(df['X'].mode()[0], inplace=True)  # categorical
+df['X'] = df['X'].fillna(df['X'].median())   # numeric
+df['X'] = df['X'].fillna(df['X'].mode()[0])  # categorical
 ```
 
 ### `"cast 'X' to numeric"`
@@ -168,7 +168,6 @@ fill_values = {
     col: df[col].median() if pd.api.types.is_numeric_dtype(df[col]) else df[col].mode()[0]
     for col in cols_to_fill
 }
-# Then apply
-for col, val in fill_values.items():
-    df[col].fillna(val, inplace=True)
+# Then apply in a single call
+df = df.fillna(fill_values)
 ```
