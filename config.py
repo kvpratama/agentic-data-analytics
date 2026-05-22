@@ -42,6 +42,10 @@ class Settings(BaseSettings):
         api_key: Optional API key. If unset, ``init_chat_model`` falls back to
             the provider's standard env var.
         temperature: Sampling temperature.
+        modal_app_name: Name of the Modal app that owns sandboxes for this
+            project. Created on first use if missing.
+        modal_sandbox_timeout: Hard wall-clock cap (seconds) on a single
+            sandbox's lifetime. Defaults to 30 minutes.
     """
 
     model_config = SettingsConfigDict(
@@ -56,6 +60,8 @@ class Settings(BaseSettings):
     base_url: str | None = None
     api_key: SecretStr | None = None
     temperature: float = 0.0
+    modal_app_name: str = "agentic-data-analytics"
+    modal_sandbox_timeout: int = 60 * 30
 
 
 @lru_cache

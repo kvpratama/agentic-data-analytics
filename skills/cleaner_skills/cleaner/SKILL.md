@@ -7,9 +7,10 @@ description: Clean a CSV dataset by reading profile.json. Use whenever asked to 
 
 ## Overview
 
-Read `profile.json` produced by the Profiler, work through the `diagnosis` list, apply
-fixes to the DataFrame using your own judgement, and overwrite `dataset.csv` in place.
-Log every decision — including what you chose *not* to fix and why — to `changes.json`.
+Read `/work/profile.json` produced by the Profiler, work through the `diagnosis` list,
+apply fixes to the DataFrame using your own judgement, and overwrite `/work/dataset.csv`
+in place. Log every decision — including what you chose *not* to fix and why — to
+`/work/changes.json`.
 
 ## When to Use
 
@@ -17,20 +18,34 @@ When asked to clean a dataset after profiling has already run.
 
 ## Execution Context
 
-Use `execute_python` for all code. The kernel is persistent — `df` and any variables set
-in earlier calls survive across calls. Split work across multiple calls to stay under the
-~10 KB output limit per call.
+Use the `execute` shell tool for all code. Each `execute` call is a fresh Python process —
+**state persists via files, not in-memory variables.** Re-read `/work/dataset.csv` at the
+top of each script. Split work across multiple calls to stay under the ~10 KB output
+limit per call.
+
+### How to run Python
+
+For multi-line Python, write a script and run it:
+
+```
+write_file('/work/_cell.py', '<your code>')
+execute('python /work/_cell.py')
+```
+
+For one-liners, `execute("python -c '...'")` is fine. Avoid heredocs — they are brittle
+through the LLM's quoting.
+
 
 ## Inputs
 
-- `profile.json` — written by the Profiler; read this first
-- `dataset.csv` — the raw dataset to clean
+- `/work/profile.json` — written by the Profiler; read this first
+- `/work/dataset.csv` — the raw dataset to clean
 
 ## Workflow
 
-1. **Call 1 — Load**: read `profile.json` and `dataset.csv` into the kernel.
-2. **Call 2 — Fix**: work through each diagnosis item, apply or skip with logged reasoning.
-3. **Call 3 — Write**: overwrite `dataset.csv`, write `changes.json`, print summary.
+1. **Call 1 — Inspect**: read `/work/profile.json` and a small slice of `/work/dataset.csv` to confirm columns and dtypes before deciding on fixes.
+2. **Call 2 — Fix**: in a single script, re-read `/work/dataset.csv` in full, work through each diagnosis item (apply or skip with logged reasoning), and overwrite `/work/dataset.csv` in place at the end.
+3. **Call 3 — Log**: write `/work/changes.json` and print summary.
 
 ---
 
@@ -119,9 +134,9 @@ The diagnosis list is a starting point, not a rigid checklist. You are expected 
 
 ## Output Contract
 
-**`dataset.csv`** — overwritten in place with the cleaned DataFrame.
+**`/work/dataset.csv`** — overwritten in place with the cleaned DataFrame.
 
-**`changes.json`** — one entry per diagnosis item:
+**`/work/changes.json`** — one entry per diagnosis item:
 
 ```json
 [

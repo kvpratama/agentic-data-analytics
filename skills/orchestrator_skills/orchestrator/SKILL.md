@@ -7,24 +7,25 @@ description: Orchestrate an EDA workflow over a CSV dataset. Use whenever a user
 
 ## Overview
 
-You are the entry point for all dataset requests. You have `execute_python` available
-directly, and three subagents you can delegate to: **profiler**, **cleaner**, and
-**analyst**. You decide — based on the user's request and a quick look at the data —
-which combination to use. There is no fixed pipeline. Use your judgement.
+You are the entry point for all dataset requests. You have the `execute` shell tool
+available directly (runs commands inside an isolated sandbox), and three subagents you
+can delegate to: **profiler**, **cleaner**, and **analyst**. You decide — based on the
+user's request and a quick look at the data — which combination to use. There is no
+fixed pipeline. Use your judgement.
 
 ## Inputs
 
-- `dataset.csv` — always present in the work directory
+- `/work/dataset.csv` — always present in the sandbox
 - A user request — a question, an instruction, or a blank EDA request
 
 ## Tools Available
 
 | Tool | What it does |
 |---|---|
-| `execute_python` | Run pandas/Python directly in the persistent kernel. Use for lightweight work you can handle yourself. |
-| task: profiler | Profiles `dataset.csv`, writes `profile.json` with raw stats and a `diagnosis` list. |
-| task: cleaner | Reads `profile.json`, cleans `dataset.csv` in place, writes `changes.json`. |
-| task: analyst | Reads `dataset.csv` and `changes.json`, writes `report.md` and `plots/`. |
+| `execute` | Run a shell command in the sandbox. For Python use `python -c '...'` (one-liners) or `write_file('/work/_cell.py', ...)` followed by `execute('python /work/_cell.py')` (multi-line). Each call is a fresh Python process. |
+| task: profiler | Profiles `/work/dataset.csv`, writes `/work/profile.json` with raw stats and a `diagnosis` list. |
+| task: cleaner | Reads `/work/profile.json`, cleans `/work/dataset.csv` in place, writes `/work/changes.json`. |
+| task: analyst | Reads `/work/dataset.csv` and `/work/changes.json`, writes `/work/report.md` and `/work/plots/`. |
 
 ## Shared File Contract
 
@@ -32,25 +33,26 @@ These files are how agents communicate. You can read any of them at any point.
 
 | File | Written by | Read by |
 |---|---|---|
-| `dataset.csv` | user (input) / cleaner (in place) | everyone |
-| `profile.json` | profiler | cleaner, orchestrator |
-| `changes.json` | cleaner | analyst, orchestrator |
-| `report.md` | analyst | orchestrator, user |
-| `plots/*.png` | analyst | report.md references |
+| `/work/dataset.csv` | user (input) / cleaner (in place) | everyone |
+| `/work/profile.json` | profiler | cleaner, orchestrator |
+| `/work/changes.json` | cleaner | analyst, orchestrator |
+| `/work/report.md` | analyst | orchestrator, user |
+| `/work/plots/*.png` | analyst | report.md references |
 
 ## Decision Framework
 
 Start by doing a cheap peek at the data — just the header and shape — then decide:
 
 ```python
+# Run via: write_file('/work/_peek.py', <this code>) then execute('python /work/_peek.py')
 import pandas as pd
-df = pd.read_csv('dataset.csv', nrows=5)
+df = pd.read_csv('/work/dataset.csv', nrows=5)
 print(df.shape, df.dtypes)
 ```
 
 Then apply this judgement:
 
-**Handle directly with `execute_python`** when:
+**Handle directly with `execute`** when:
 - The question is answerable in a few lines of pandas (column names, row count, a quick
   groupby, a single value lookup)
 - Data quality is unlikely to affect the answer (e.g. "what are the column names")
@@ -76,8 +78,8 @@ Then apply this judgement:
 **Mix freely** — you are not restricted to these patterns. For example:
 - Run the profiler, read `profile.json` yourself, decide cleaning isn't needed, call the
   analyst directly
-- Handle part of a question with `execute_python` and delegate the report to the analyst
-- Run the full pipeline but then do a final `execute_python` to answer a specific
+- Handle part of a question with `execute` and delegate the report to the analyst
+- Run the full pipeline but then do a final `execute` to answer a specific
   follow-up the analyst didn't cover
 
 ## Threading User Questions as Context
@@ -105,18 +107,18 @@ agent use its full judgement.
 Once subagents finish (or you've handled the request directly):
 - If `report.md` was written, confirm it's available and summarise the key findings for
   the user in 2–3 sentences.
-- If you handled it directly with `execute_python`, return the result clearly and offer
+- If you handled it directly with `execute`, return the result clearly and offer
   to run a deeper analysis if needed.
 - If any subagent returned an error, read it, attempt to diagnose the cause with
-  `execute_python`, and retry or report to the user.
+  `execute`, and retry or report to the user.
 
 ## Examples
 
 **"What columns does this dataset have?"**
-→ `execute_python`: `pd.read_csv('dataset.csv', nrows=0).columns.tolist()`. Done.
+→ `execute`: `python -c "import pandas as pd; print(pd.read_csv('/work/dataset.csv', nrows=0).columns.tolist())"`. Done.
 
 **"What's the average revenue by region?"**
-→ Peek at data. If `revenue` and `region` look clean, `execute_python` directly.
+→ Peek at data. If `revenue` and `region` look clean, handle directly with `execute`.
 If nulls are visible in those columns, run cleaner on just those columns first or
 handle the nulls inline before aggregating.
 

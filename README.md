@@ -1,14 +1,14 @@
 # Agentic Data Analytics
 
-A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview). A single orchestrator coordinates three specialized subagents — **profiler**, **cleaner**, and **analyst** — that share a long-lived IPython kernel to profile a CSV dataset, fix data quality issues, and produce an insights report with visualizations.
+A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview). A single orchestrator coordinates three specialized subagents — **profiler**, **cleaner**, and **analyst** — that execute inside a secure, sandboxed Modal microVM to profile a CSV dataset, fix data quality issues, and produce an insights report with visualizations.
 
 ## What This Example Demonstrates
 
 - **`SubAgentMiddleware`** — three named subagents with distinct system prompts and skills, communicating through the orchestrator via the `task` tool.
-- **Persistent IPython kernel** — every subagent shares one [`KernelSession`](tools/code_executor.py) so DataFrames, imports, and intermediate variables survive across tool calls and across subagents.
-- **Single `execute_python` tool surface** — each subagent has the full power of pandas / scipy / matplotlib in one tool. Smaller tool schemas, fewer choice tokens, more expressive analyses.
-- **Skills (progressive disclosure)** — methodology lives in `SKILL.md` files under `skills/`, mounted into the agent's virtual filesystem and loaded on demand. System prompts stay short.
-- **Sandboxed filesystem** — `FilesystemBackend(virtual_mode=True)` restricts the agent to a per-dataset working directory, keeping mutations safely recoverable.
+- **Modal Sandbox Isolation** — runs in a secure, isolated microVM using `ModalSandbox` (from `langchain-modal`). The agent cannot escape the container, keeping your host machine protected.
+- **Single `execute` tool surface** — each subagent has the full power of pandas / scipy / matplotlib via one `execute` tool to run commands inside the sandbox container.
+- **Skills (progressive disclosure)** — methodology lives in `SKILL.md` files under `skills/`, mounted into the sandbox filesystem and loaded on demand.
+- **File-based state persistence** — state persists across subagents and execution calls through explicit files (`/work/dataset.csv`, `/work/profile.json`, etc.) in the sandbox rather than in-memory kernel variables.
 - **Multi-provider model configuration** — swap between Anthropic, OpenAI, or Google with a single `.env` change.
 
 ## Architecture
@@ -18,7 +18,6 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
                     │   Orchestrator   │  (main deep agent)
                     │  • write_todos   │
                     │  • task          │
-                    │  • filesystem    │
                     ╰────────┬─────────╯
                              │ delegates via task()
             ╭────────────────┼────────────────╮
@@ -27,18 +26,19 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
       │ profiler │     │ cleaner  │     │ analyst  │
       ╰────┬─────╯     ╰────┬─────╯     ╰────┬─────╯
            │                │                │
-           │ execute_python │ execute_python │ execute_python
+           │ execute        │ execute        │ execute
            ╰────────────────┼────────────────╯
                             ▼
               ╭──────────────────────────╮
-              │     KernelSession        │  ← one shared IPython kernel
-              │  cwd = work/<dataset>    │     state persists across calls
+              │       ModalSandbox       │  ← secure isolated microVM
+              │  /work/dataset.csv       │    state survives via files
+              │  /skills/...             │
               ╰──────────────────────────╯
 ```
 
-1. **Profiler** — loads the [profiling skill](skills/profiler_skills/profiling/SKILL.md), inspects `dataset.csv` (dtypes, missingness, cardinality, distributions, outliers, duplicates), and writes `profile.json` with raw stats and a `diagnosis` list.
-2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaning/SKILL.md), reads `profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by overwriting `dataset.csv`.
-3. **Analyst** — loads the [analysis skill](skills/analyst_skills/analysis/SKILL.md), runs correlations / aggregations / hypothesis tests tied to the user's objective, saves plots to `plots/`, and writes the final `report.md`.
+1. **Profiler** — loads the [profiling skill](skills/profiler_skills/profiler/SKILL.md), inspects `/work/dataset.csv` in the sandbox, and writes `/work/profile.json` with raw stats and a `diagnosis` list.
+2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaner/SKILL.md), reads `/work/profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by overwriting `/work/dataset.csv` in place.
+3. **Analyst** — loads the [analysis skill](skills/analyst_skills/analyst/SKILL.md), runs correlations / aggregations / hypothesis tests tied to the user's objective, saves plots to `/work/plots/`, and writes the final `/work/report.md`.
 
 ## Quick Start
 
@@ -46,6 +46,7 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 
 - Python 3.12 or higher
 - An API key for your chosen model provider ([Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or [Google](https://aistudio.google.com/))
+- A [Modal](https://modal.com/) account and authenticated credentials on your host machine (run `uv run modal token new` to log in, or set the standard `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` environment variables).
 
 ### Installation
 
@@ -90,11 +91,12 @@ uv run python agent.py dataset/Titanic-Dataset.csv "Investigate factors that aff
 
 The agent will:
 
-1. Copy the CSV into a fresh sandboxed `work/Titanic-Dataset/` directory.
-2. Profile the dataset and identify quality issues (`profile.json`).
-3. Clean the data in place on the sandboxed `dataset.csv`.
-4. Analyze the cleaned data, generating plots and a final report.
-5. Write `report.md` summarizing findings.
+1. Boot an isolated `ModalSandbox` loaded with a custom Python image containing `pandas`, `scipy`, `matplotlib`, and `seaborn`.
+2. Seed the sandbox with the input dataset (copied to `/work/dataset.csv`) and the subagents' skills (copied to `/skills/`).
+3. Profile the dataset and identify quality issues (`/work/profile.json`).
+4. Clean the data in place on the sandboxed `/work/dataset.csv`.
+5. Analyze the cleaned data, generating plots and a final report (`/work/report.md`).
+6. Download the resulting output artifacts back to your host machine into `work/<dataset-stem>/` and terminate the sandbox VM.
 
 Output artifacts land in `work/<dataset-stem>/`:
 
@@ -102,7 +104,7 @@ Output artifacts land in `work/<dataset-stem>/`:
 work/Titanic-Dataset/
 ├── dataset.csv       ← cleaned copy (your original is untouched)
 ├── profile.json      ← profiler output
-├── skills/           ← copy of skills/ for SkillsMiddleware lookup
+├── changes.json      ← cleaner log of changes
 ├── plots/*.png       ← analyst visualizations
 └── report.md         ← final insights report
 ```
@@ -159,17 +161,19 @@ uv run python agent.py dataset/diamonds.csv \
 
 ```
 agentic-data-analytics/
-├── agent.py                          ← orchestrator + CLI entrypoint
-├── config.py                         ← Settings + get_model() (multi-provider)
+├── agent.py                          ← orchestrator + CLI entrypoint (manages ModalSandbox)
+├── config.py                         ← Settings + get_model() (multi-provider + Modal settings)
+├── config_test.py                    ← unit tests for Settings
 ├── tools/
-│   ├── code_executor.py              ← KernelSession + execute_python tool
-│   └── code_executor_test.py         ← unit tests for the kernel session
+│   ├── modal_runtime.py              ← sandbox build, seed, and download helpers
+│   └── modal_runtime_test.py         ← unit tests for sandbox runtime operations
 ├── skills/
-│   ├── profiler_skills/profiling/SKILL.md
-│   ├── cleaner_skills/cleaning/SKILL.md
-│   └── analyst_skills/analysis/SKILL.md
+│   ├── profiler_skills/profiler/SKILL.md
+│   ├── cleaner_skills/cleaner/SKILL.md
+│   ├── analyst_skills/analyst/SKILL.md
+│   └── orchestrator_skills/orchestrator/SKILL.md
 ├── dataset/                          ← gitignored, downloaded on demand
-├── work/                             ← gitignored, agent-managed per-run outputs
+├── work/                             ← gitignored, host-side downloaded artifacts per-run
 ├── pyproject.toml
 ├── .env.example
 ├── .gitignore
@@ -193,6 +197,10 @@ ANTHROPIC_API_KEY=...
 # MODEL=google_genai:gemini-2.0-flash
 # GOOGLE_API_KEY=...
 
+# Optional Modal App configuration overrides
+# MODAL_APP_NAME=agentic-data-analytics
+# MODAL_SANDBOX_TIMEOUT=1200
+
 TEMPERATURE=0.0
 ```
 
@@ -200,10 +208,10 @@ Optional LangSmith tracing variables are also recognized (see `.env.example`).
 
 ## Extending This Example
 
-1. **Feature engineer subagent** — add a `feature_engineer` step downstream of `cleaner` with a skill covering one-hot encoding, scaling, binning, datetime decomposition, and train/test splits. Outputs `features.parquet`.
-2. **Human-in-the-loop approval** — wrap `execute_python` in `interrupt_on={...}` plus a `MemorySaver` checkpointer and a CLI approve/reject/edit prompt loop, so destructive cells require confirmation.
+1. **Feature engineer subagent** — add a `feature_engineer` step downstream of `cleaner` with a skill covering one-hot encoding, scaling, binning, datetime decomposition, and train/test splits. Outputs `/work/features.parquet`.
+2. **Human-in-the-loop approval** — wrap `execute` in `interrupt_on={...}` plus a `MemorySaver` checkpointer and a CLI approve/reject/edit prompt loop, so destructive commands require confirmation.
 3. **Cleaning script export** — extend the cleaning skill to emit an auditable `cleaning_pipeline.py` reproducing the applied operations.
-4. **Multi-dataset orchestration** — accept a directory of CSVs and process each in its own per-dataset sandbox (each with its own `KernelSession`).
+4. **Multi-dataset orchestration** — accept a directory of CSVs and process each in its own concurrent `ModalSandbox`.
 
 ## Resources
 

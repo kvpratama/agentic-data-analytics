@@ -7,9 +7,10 @@ description: Analyse a dataset and produce a Markdown report with plots. Use whe
 
 ## Overview
 
-Read `dataset.csv` and `changes.json`, produce a Markdown report (`report.md`) with
-supporting PNG plots in `plots/`. The report follows a fixed skeleton with conditional
-sections — include a conditional section only if the data genuinely warrants it.
+Read `/work/dataset.csv` and `/work/changes.json`, produce a Markdown report
+(`/work/report.md`) with supporting PNG plots in `/work/plots/`. The report follows a
+fixed skeleton with conditional sections — include a conditional section only if the
+data genuinely warrants it.
 
 ## When to Use
 
@@ -17,28 +18,43 @@ When asked to analyse or summarise a dataset after cleaning has already run.
 
 ## Execution Context
 
-Use `execute_python` for all code. Kernel is persistent across calls. Split work across
-multiple calls to stay under the ~10 KB output limit. Create `plots/` before saving any
-figures.
+Use the `execute` shell tool for all code. Each `execute` call is a fresh Python
+process — **state persists via files, not in-memory variables.** Re-read
+`/work/dataset.csv` at the top of each script. Split work across multiple calls to stay
+under the ~10 KB output limit. Create `/work/plots/` (e.g. `os.makedirs('/work/plots',
+exist_ok=True)`) before saving any figures.
+
+### How to run Python
+
+For multi-line Python, write a script and run it:
+
+```
+write_file('/work/_cell.py', '<your code>')
+execute('python /work/_cell.py')
+```
+
+For one-liners, `execute("python -c '...'")` is fine. Avoid heredocs — they are brittle
+through the LLM's quoting.
+
 
 ## Inputs
 
-- `dataset.csv` — the cleaned dataset
-- `changes.json` — the Cleaner's decision log; read this to understand what was fixed,
-  skipped, or winsorised before drawing conclusions about the data.
+- `/work/dataset.csv` — the cleaned dataset
+- `/work/changes.json` — the Cleaner's decision log; read this to understand what was
+  fixed, skipped, or winsorised before drawing conclusions about the data.
   **May not exist** if the orchestrator skipped the cleaning step. Treat its absence as
   "dataset is raw — no cleaning performed" and proceed; do not error out.
 
 ## Workflow
 
-1. **Call 1 — Load**: read `dataset.csv`, and `changes.json` if it exists (use
-   `os.path.exists` — set `changes = []` if missing). Print shape and a quick dtype
-   summary to confirm what you're working with.
-2. **Call 2 — Compute**: run the statistics and correlation checks needed to decide which
-   conditional sections are warranted.
-3. **Call 3+ — Plot**: generate and save each plot as a PNG. One `execute_python` call
-   per plot to keep output manageable.
-4. **Final call — Write**: assemble and write `report.md`.
+1. **Call 1 — Load**: in a script, read `/work/dataset.csv` and `/work/changes.json` if
+   it exists (use `os.path.exists` — set `changes = []` if missing). Print shape and a
+   quick dtype summary to confirm what you're working with.
+2. **Call 2 — Compute**: re-read `/work/dataset.csv`, run the statistics and correlation
+   checks needed to decide which conditional sections are warranted.
+3. **Call 3+ — Plot**: generate and save each plot as a PNG under `/work/plots/`. One
+   `execute` call per plot to keep output manageable.
+4. **Final call — Write**: assemble and write `/work/report.md`.
 
 ---
 
@@ -124,12 +140,13 @@ left them, so the reader knows to treat those columns carefully.
 
 ## Output Contract
 
-**`report.md`** — Markdown file with:
+**`/work/report.md`** — Markdown file with:
 - Required sections: Summary, Key Findings, Data Quality Notes
 - Conditional sections as warranted
-- PNG references using relative paths: `![title](plots/filename.png)`
+- PNG references using relative paths: `![title](plots/filename.png)` (relative so the
+  links still work after artifacts are mirrored back to `work/<stem>/` on the host)
 
-**`plots/`** — directory containing all referenced PNGs.
+**`/work/plots/`** — directory containing all referenced PNGs.
 
 Print to stdout:
 ```
@@ -149,6 +166,6 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # import AFTER setting backend
 ```
 
-**One plot per `execute_python` call** — matplotlib state can bleed between figures if
-multiple plots are built in one call without explicit `plt.close()`. Keeping them separate
-is safer and keeps output readable.
+**One plot per `execute` call** — matplotlib state can bleed between figures if multiple
+plots are built in one call without explicit `plt.close()`. Keeping them separate is
+safer and keeps output readable.
