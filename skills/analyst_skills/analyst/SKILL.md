@@ -7,9 +7,13 @@ description: Analyse a dataset and produce a Markdown report with plots. Use whe
 
 ## Overview
 
-Read `dataset.csv` and `changes.json`, produce a Markdown report (`report.md`) with
-supporting PNG plots in `plots/`. The report follows a fixed skeleton with conditional
-sections — include a conditional section only if the data genuinely warrants it.
+Read `/work/dataset.clean.csv` (or `/work/dataset.csv` if the cleaner did not run) and
+`/work/changes.json`, produce a Markdown report (`/work/report.md`) with supporting PNG
+plots in `/work/plots/`. The report follows a fixed skeleton with conditional sections —
+include a conditional section only if the data genuinely warrants it.
+
+The raw `/work/dataset.csv` is always available — consult it when you need to compare
+pre/post-cleaning values (e.g. to verify outlier handling or show the impact of imputation).
 
 ## When to Use
 
@@ -17,28 +21,54 @@ When asked to analyse or summarise a dataset after cleaning has already run.
 
 ## Execution Context
 
-Use `execute_python` for all code. Kernel is persistent across calls. Split work across
-multiple calls to stay under the ~10 KB output limit. Create `plots/` before saving any
-figures.
+Use the `execute` shell tool for all code. Each `execute` call is a fresh Python
+process — **state persists via files, not in-memory variables.** Re-read the cleaned
+dataset at the top of each script. Very large outputs are evicted to the filesystem,
+so print only what you need. Create `/work/plots/` (e.g. `os.makedirs('/work/plots',
+exist_ok=True)`) before saving any figures.
+
+Use this helper at the top of every script to pick the right file:
+
+```python
+import os
+DATA = '/work/dataset.clean.csv' if os.path.exists('/work/dataset.clean.csv') else '/work/dataset.csv'
+df = pd.read_csv(DATA)
+```
+
+### How to run Python
+
+For multi-line Python, write a script and run it:
+
+```text
+write_file('/work/_cell.py', '<your code>')
+execute('python /work/_cell.py')
+```
+
+For one-liners, `execute("python -c '...'")` is fine. Avoid heredocs — they are brittle
+through the LLM's quoting.
+
 
 ## Inputs
 
-- `dataset.csv` — the cleaned dataset
-- `changes.json` — the Cleaner's decision log; read this to understand what was fixed,
-  skipped, or winsorised before drawing conclusions about the data.
+- `/work/dataset.clean.csv` — the cleaned dataset (preferred input).
+- `/work/dataset.csv` — the raw, untouched dataset. Use as a fallback when
+  `dataset.clean.csv` doesn't exist, or for pre/post comparisons.
+- `/work/changes.json` — the Cleaner's decision log; read this to understand what was
+  fixed, skipped, or winsorised before drawing conclusions about the data.
   **May not exist** if the orchestrator skipped the cleaning step. Treat its absence as
   "dataset is raw — no cleaning performed" and proceed; do not error out.
 
 ## Workflow
 
-1. **Call 1 — Load**: read `dataset.csv`, and `changes.json` if it exists (use
-   `os.path.exists` — set `changes = []` if missing). Print shape and a quick dtype
-   summary to confirm what you're working with.
-2. **Call 2 — Compute**: run the statistics and correlation checks needed to decide which
-   conditional sections are warranted.
-3. **Call 3+ — Plot**: generate and save each plot as a PNG. One `execute_python` call
-   per plot to keep output manageable.
-4. **Final call — Write**: assemble and write `report.md`.
+1. **Call 1 — Load**: in a script, read the cleaned dataset (see helper in Execution
+   Context) and `/work/changes.json` if it exists (use `os.path.exists` — set
+   `changes = []` if missing). Print shape and a quick dtype summary to confirm what
+   you're working with.
+2. **Call 2 — Compute**: re-read the cleaned dataset, run the statistics and correlation
+   checks needed to decide which conditional sections are warranted.
+3. **Call 3+ — Plot**: generate and save each plot as a PNG under `/work/plots/`. One
+   `execute` call per plot to keep output manageable.
+4. **Final call — Write**: assemble and write `/work/report.md`.
 
 ---
 
@@ -96,14 +126,14 @@ small group of users over 70" is useful. "Age has skewness 1.8" is not.
 #### Correlations
 **Include if**: there are ≥2 numeric columns and at least one pair has |r| > 0.5.
 
-Save a heatmap as `plots/correlation_heatmap.png`. Call out the strongest relationships
+Save a heatmap as `/work/plots/correlation_heatmap.png`. Call out the strongest relationships
 by name and suggest what they might imply.
 
 #### Categorical Breakdown
 **Include if**: there are categorical columns with 2–20 unique values that show meaningful
 variation (i.e. not roughly uniform, not near-constant).
 
-Save a bar chart per interesting column as `plots/cat_<colname>.png`.
+Save a bar chart per interesting column as `/work/plots/cat_<colname>.png`.
 
 #### Outlier Notes
 **Include if**: `changes.json` contains any entry with `"action": "skipped"` for an
@@ -115,21 +145,22 @@ left them, so the reader knows to treat those columns carefully.
 ## Plotting Guidelines
 
 - Use `matplotlib` with `Agg` backend (no display): set `matplotlib.use('Agg')` before importing `pyplot`.
-- Create `plots/` if it doesn't exist: `os.makedirs('plots', exist_ok=True)`.
+- Create `/work/plots/` if it doesn't exist: `import os; os.makedirs('/work/plots', exist_ok=True)`.
 - Keep plots clean: label axes, add a title, call `plt.tight_layout()` before saving.
-- Save at 150 dpi: `plt.savefig('plots/filename.png', dpi=150, bbox_inches='tight')`.
+- Save at 150 dpi: `plt.savefig('/work/plots/filename.png', dpi=150, bbox_inches='tight')`.
 - Call `plt.close()` after each save to free memory.
 
 ---
 
 ## Output Contract
 
-**`report.md`** — Markdown file with:
+**`/work/report.md`** — Markdown file with:
 - Required sections: Summary, Key Findings, Data Quality Notes
 - Conditional sections as warranted
-- PNG references using relative paths: `![title](plots/filename.png)`
+- PNG references using relative paths: `![title](plots/filename.png)` (relative so the
+  links still work after artifacts are mirrored back to `work/<stem>/` on the host)
 
-**`plots/`** — directory containing all referenced PNGs.
+**`/work/plots/`** — directory containing all referenced PNGs.
 
 Print to stdout:
 ```
@@ -149,6 +180,6 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # import AFTER setting backend
 ```
 
-**One plot per `execute_python` call** — matplotlib state can bleed between figures if
-multiple plots are built in one call without explicit `plt.close()`. Keeping them separate
-is safer and keeps output readable.
+**One plot per `execute` call** — matplotlib state can bleed between figures if multiple
+plots are built in one call without explicit `plt.close()`. Keeping them separate is
+safer and keeps output readable.

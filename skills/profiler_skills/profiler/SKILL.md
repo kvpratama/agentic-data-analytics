@@ -16,25 +16,33 @@ When asked to profile a dataset before cleaning or analysis.
 
 ## Execution Context
 
-Use the `execute_python` tool to run code. The kernel is persistent — variables, imports,
-and DataFrames survive across calls, so load `df` once and reuse it.
+Use the `execute` shell tool to run code. Each `execute` call is a fresh Python process —
+**state persists via files, not in-memory variables.** Re-read `/work/dataset.csv` at the
+top of each script.
 
-- **Paths are relative** to the per-run work directory. Use `'dataset.csv'` and
-  `'profile.json'` directly — no absolute paths needed.
-- **Output is truncated at ~10 KB.** Split the profiling work across multiple
-  `execute_python` calls (one per logical section) rather than submitting the entire
-  snippet in a single call. This keeps each return value readable and avoids silent
-  truncation mid-diagnosis.
-- **Timeout is 60 s per call.** Wide datasets with many columns may need the loops
-  broken up if they run long.
+- **All dataset files live under `/work/`.** Use absolute paths: `/work/dataset.csv`,
+  `/work/profile.json`.
+- **Output eviction.** Very large outputs (>20,000 tokens) are automatically evicted to the filesystem to protect your context window. It's good practice to print only what you need (e.g., summaries rather than raw data) to keep context clear.
+
+### How to run Python
+
+For multi-line Python, write a script and run it:
+
+```text
+write_file('/work/_cell.py', '<your code>')
+execute('python /work/_cell.py')
+```
+
+For one-liners, `execute("python -c '...'")` is fine. Avoid heredocs — they are brittle
+through the LLM's quoting.
+
 
 ## Workflow
 
-1. **Call 1 — Load + raw stats**: `df = pd.read_csv('dataset.csv')`, build the `profile` dict (shape, dtypes, missingness, cardinality, describe, duplicates).
-2. **Call 2 — Diagnosis**: iterate over columns to build the `diagnosis` list (missingness rules, castability, outliers, cardinality flags, duplicates, whitespace).
-3. **Call 3 — Write output**: merge `diagnosis` into `profile`, `json.dump` to `profile.json`, print summary.
+1. **Call 1 — Load + raw stats**: in a script, `df = pd.read_csv('/work/dataset.csv')`, build the `profile` dict (shape, dtypes, missingness, cardinality, describe, duplicates), and print key counts.
+2. **Call 2 — Diagnosis**: re-read `/work/dataset.csv`, iterate over columns to build the `diagnosis` list (missingness rules, castability, outliers, cardinality flags, duplicates, whitespace).
+3. **Call 3 — Write output**: merge `diagnosis` into `profile`, `json.dump` to `/work/profile.json`, print summary.
 
-Splitting across three calls keeps each return value well under the 10 KB output limit.
 
 ## What to Inspect
 
@@ -69,7 +77,7 @@ Append one string per issue to `diagnosis`:
 
 ## Output Contract
 
-File: `profile.json` in the working directory.
+File: `/work/profile.json`.
 
 ```json
 {
@@ -110,6 +118,6 @@ n = int(df[col].dropna().str.strip().ne(df[col].dropna()).sum())
 `json.dump` can't serialise natively:
 
 ```python
-with open('profile.json', 'w') as f:
+with open('/work/profile.json', 'w') as f:
     json.dump(profile, f, indent=2, default=str)
 ```
