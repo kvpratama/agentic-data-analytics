@@ -22,14 +22,14 @@ When asked to clean a dataset after profiling has already run.
 Use the `execute` shell tool for all code. Each `execute` call is a fresh Python process —
 **state persists via files, not in-memory variables.** Always re-read the **raw**
 `/work/dataset.csv` at the top of each script (never re-read `dataset.clean.csv` and
-re-clean it). Split work across multiple calls to stay under the ~10 KB output limit
-per call.
+re-clean it). Very large outputs (>20,000 tokens) are evicted to the filesystem, so
+print only what you need.
 
 ### How to run Python
 
 For multi-line Python, write a script and run it:
 
-```
+```text
 write_file('/work/_cell.py', '<your code>')
 execute('python /work/_cell.py')
 ```

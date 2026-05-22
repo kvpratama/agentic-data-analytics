@@ -23,8 +23,8 @@ When asked to analyse or summarise a dataset after cleaning has already run.
 
 Use the `execute` shell tool for all code. Each `execute` call is a fresh Python
 process — **state persists via files, not in-memory variables.** Re-read the cleaned
-dataset at the top of each script. Split work across multiple calls to stay under the
-~10 KB output limit. Create `/work/plots/` (e.g. `os.makedirs('/work/plots',
+dataset at the top of each script. Very large outputs are evicted to the filesystem,
+so print only what you need. Create `/work/plots/` (e.g. `os.makedirs('/work/plots',
 exist_ok=True)`) before saving any figures.
 
 Use this helper at the top of every script to pick the right file:
@@ -39,7 +39,7 @@ df = pd.read_csv(DATA)
 
 For multi-line Python, write a script and run it:
 
-```
+```text
 write_file('/work/_cell.py', '<your code>')
 execute('python /work/_cell.py')
 ```

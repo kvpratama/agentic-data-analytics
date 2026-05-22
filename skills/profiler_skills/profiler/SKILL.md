@@ -22,17 +22,13 @@ top of each script.
 
 - **All dataset files live under `/work/`.** Use absolute paths: `/work/dataset.csv`,
   `/work/profile.json`.
-- **Output is truncated at ~10 KB.** Split the profiling work across multiple `execute`
-  calls (one per logical section) rather than submitting the entire snippet in a single
-  call. This keeps each return value readable and avoids silent truncation mid-diagnosis.
-- **Timeout is 60 s per `execute` call.** Wide datasets with many columns may need the
-  loops broken up if they run long.
+- **Output eviction.** Very large outputs (>20,000 tokens) are automatically evicted to the filesystem to protect your context window. It's good practice to print only what you need (e.g., summaries rather than raw data) to keep context clear.
 
 ### How to run Python
 
 For multi-line Python, write a script and run it:
 
-```
+```text
 write_file('/work/_cell.py', '<your code>')
 execute('python /work/_cell.py')
 ```
@@ -47,7 +43,6 @@ through the LLM's quoting.
 2. **Call 2 — Diagnosis**: re-read `/work/dataset.csv`, iterate over columns to build the `diagnosis` list (missingness rules, castability, outliers, cardinality flags, duplicates, whitespace).
 3. **Call 3 — Write output**: merge `diagnosis` into `profile`, `json.dump` to `/work/profile.json`, print summary.
 
-Splitting across three calls keeps each return value well under the 10 KB output limit.
 
 ## What to Inspect
 
