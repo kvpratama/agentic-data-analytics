@@ -142,8 +142,8 @@ async def main() -> None:
     )
 
     settings = get_settings()
-    app = modal.App.lookup(settings.modal_app_name, create_if_missing=True)
-    modal_sandbox = modal.Sandbox.create(
+    app = await modal.App.lookup.aio(settings.modal_app_name, create_if_missing=True)
+    modal_sandbox = await modal.Sandbox.create.aio(
         image=build_image(),
         app=app,
         timeout=settings.modal_sandbox_timeout,
@@ -179,7 +179,7 @@ async def main() -> None:
         else:
             console.print("[yellow]Warning: report.md was not generated.[/yellow]")
     finally:
-        modal_sandbox.terminate()
+        await modal_sandbox.terminate.aio()
 
 
 if __name__ == "__main__":

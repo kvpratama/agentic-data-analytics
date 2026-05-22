@@ -54,9 +54,20 @@ def seed_sandbox(
         csv_path: Host path to the input CSV.
         skills_dir: Host path to the project's ``skills/`` directory.
     """
+    # Pre-create target directories in sandbox filesystem.
+    # modal.Sandbox.open does not automatically create parent directories, so they must exist first.
+    dirs_to_create = {"/work"}
+    skills_root = pathlib.Path(skills_dir)
+    for entry in skills_root.rglob("*"):
+        if entry.is_file():
+            rel_parent = entry.relative_to(skills_root).parent.as_posix()
+            dirs_to_create.add(f"/skills/{rel_parent}")
+
+    dirs_str = " ".join(sorted(dirs_to_create))
+    backend.execute(f"mkdir -p {dirs_str}")
+
     uploads: list[tuple[str, bytes]] = [("/work/dataset.csv", pathlib.Path(csv_path).read_bytes())]
 
-    skills_root = pathlib.Path(skills_dir)
     for entry in skills_root.rglob("*"):
         if entry.is_file():
             rel = entry.relative_to(skills_root).as_posix()
