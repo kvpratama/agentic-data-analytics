@@ -126,14 +126,14 @@ small group of users over 70" is useful. "Age has skewness 1.8" is not.
 #### Correlations
 **Include if**: there are ≥2 numeric columns and at least one pair has |r| > 0.5.
 
-Save a heatmap as `plots/correlation_heatmap.png`. Call out the strongest relationships
+Save a heatmap as `/work/plots/correlation_heatmap.png`. Call out the strongest relationships
 by name and suggest what they might imply.
 
 #### Categorical Breakdown
 **Include if**: there are categorical columns with 2–20 unique values that show meaningful
 variation (i.e. not roughly uniform, not near-constant).
 
-Save a bar chart per interesting column as `plots/cat_<colname>.png`.
+Save a bar chart per interesting column as `/work/plots/cat_<colname>.png`.
 
 #### Outlier Notes
 **Include if**: `changes.json` contains any entry with `"action": "skipped"` for an
@@ -145,9 +145,9 @@ left them, so the reader knows to treat those columns carefully.
 ## Plotting Guidelines
 
 - Use `matplotlib` with `Agg` backend (no display): set `matplotlib.use('Agg')` before importing `pyplot`.
-- Create `plots/` if it doesn't exist: `os.makedirs('plots', exist_ok=True)`.
+- Create `/work/plots/` if it doesn't exist: `import os; os.makedirs('/work/plots', exist_ok=True)`.
 - Keep plots clean: label axes, add a title, call `plt.tight_layout()` before saving.
-- Save at 150 dpi: `plt.savefig('plots/filename.png', dpi=150, bbox_inches='tight')`.
+- Save at 150 dpi: `plt.savefig('/work/plots/filename.png', dpi=150, bbox_inches='tight')`.
 - Call `plt.close()` after each save to free memory.
 
 ---

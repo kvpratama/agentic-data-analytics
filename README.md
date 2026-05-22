@@ -13,7 +13,7 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 
 ## Architecture
 
-```
+```text
                     ╭──────────────────╮
                     │   Orchestrator   │  (main deep agent)
                     │  • write_todos   │
@@ -37,8 +37,8 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 ```
 
 1. **Profiler** — loads the [profiling skill](skills/profiler_skills/profiler/SKILL.md), inspects `/work/dataset.csv` in the sandbox, and writes `/work/profile.json` with raw stats and a `diagnosis` list.
-2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaner/SKILL.md), reads `/work/profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by overwriting `/work/dataset.csv` in place.
-3. **Analyst** — loads the [analysis skill](skills/analyst_skills/analyst/SKILL.md), runs correlations / aggregations / hypothesis tests tied to the user's objective, saves plots to `/work/plots/`, and writes the final `/work/report.md`.
+2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaner/SKILL.md), reads `/work/profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by writing the cleaned output to `/work/dataset.clean.csv`, leaving the original `/work/dataset.csv` unchanged.
+3. **Analyst** — loads the [analysis skill](skills/analyst_skills/analyst/SKILL.md), reads `/work/dataset.clean.csv` (and optionally `/work/dataset.csv` for raw comparisons), runs correlations / aggregations / hypothesis tests tied to the user's objective, saves plots to `/work/plots/`, and writes the final `/work/report.md`.
 
 ## Quick Start
 
@@ -94,15 +94,15 @@ The agent will:
 1. Boot an isolated `ModalSandbox` loaded with a custom Python image containing `pandas`, `scipy`, `matplotlib`, and `seaborn`.
 2. Seed the sandbox with the input dataset (copied to `/work/dataset.csv`) and the subagents' skills (copied to `/skills/`).
 3. Profile the dataset and identify quality issues (`/work/profile.json`).
-4. Clean the data in place on the sandboxed `/work/dataset.csv`.
+4. Clean the data and write it to `/work/dataset.clean.csv` inside the sandbox, preserving the original `/work/dataset.csv`.
 5. Analyze the cleaned data, generating plots and a final report (`/work/report.md`).
 6. Download the resulting output artifacts back to your host machine into `work/<dataset-stem>/` and terminate the sandbox VM.
 
 Output artifacts land in `work/<dataset-stem>/`:
 
-```
+```text
 work/Titanic-Dataset/
-├── dataset.csv       ← cleaned copy (your original is untouched)
+├── dataset.clean.csv ← cleaned copy (your original is untouched)
 ├── profile.json      ← profiler output
 ├── changes.json      ← cleaner log of changes
 ├── plots/*.png       ← analyst visualizations
@@ -159,7 +159,7 @@ uv run python agent.py dataset/diamonds.csv \
 
 ## Project Structure
 
-```
+```text
 agentic-data-analytics/
 ├── agent.py                          ← orchestrator + CLI entrypoint (manages ModalSandbox)
 ├── config.py                         ← Settings + get_model() (multi-provider + Modal settings)

@@ -152,7 +152,8 @@ async def main() -> None:
     )
     try:
         backend = ModalSandbox(sandbox=modal_sandbox)
-        seed_sandbox(backend, csv_path=csv_path, skills_dir="skills")
+        skills_dir = str(pathlib.Path(__file__).resolve().parent / "skills")
+        await seed_sandbox(backend, csv_path=csv_path, skills_dir=skills_dir)
 
         agent = create_analytics_agent(backend)
         config = RunnableConfig({"configurable": {}})
@@ -166,10 +167,10 @@ async def main() -> None:
                 if msg.content:
                     console.print(f"[italic]{msg.name or 'agent'}:[/italic] {msg.content}")
 
-        download_artifacts(backend, local_root=local_root)
+        downloaded = await download_artifacts(backend, local_root=local_root)
 
         report_path = local_root / "report.md"
-        if report_path.exists():
+        if report_path in downloaded:
             console.print(
                 Panel(
                     f"[bold green]Analysis complete![/bold green]\n"
