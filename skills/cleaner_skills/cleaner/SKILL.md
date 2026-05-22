@@ -8,9 +8,10 @@ description: Clean a CSV dataset by reading profile.json. Use whenever asked to 
 ## Overview
 
 Read `/work/profile.json` produced by the Profiler, work through the `diagnosis` list,
-apply fixes to the DataFrame using your own judgement, and overwrite `/work/dataset.csv`
-in place. Log every decision — including what you chose *not* to fix and why — to
-`/work/changes.json`.
+apply fixes to the DataFrame using your own judgement, and write the cleaned result to
+`/work/dataset.clean.csv`. **Never modify `/work/dataset.csv`** — the raw file must stay
+intact so the analyst can sanity-check the cleaning. Log every decision — including what
+you chose *not* to fix and why — to `/work/changes.json`.
 
 ## When to Use
 
@@ -19,9 +20,10 @@ When asked to clean a dataset after profiling has already run.
 ## Execution Context
 
 Use the `execute` shell tool for all code. Each `execute` call is a fresh Python process —
-**state persists via files, not in-memory variables.** Re-read `/work/dataset.csv` at the
-top of each script. Split work across multiple calls to stay under the ~10 KB output
-limit per call.
+**state persists via files, not in-memory variables.** Always re-read the **raw**
+`/work/dataset.csv` at the top of each script (never re-read `dataset.clean.csv` and
+re-clean it). Split work across multiple calls to stay under the ~10 KB output limit
+per call.
 
 ### How to run Python
 
@@ -39,12 +41,12 @@ through the LLM's quoting.
 ## Inputs
 
 - `/work/profile.json` — written by the Profiler; read this first
-- `/work/dataset.csv` — the raw dataset to clean
+- `/work/dataset.csv` — the raw dataset to clean (read-only; do not overwrite)
 
 ## Workflow
 
 1. **Call 1 — Inspect**: read `/work/profile.json` and a small slice of `/work/dataset.csv` to confirm columns and dtypes before deciding on fixes.
-2. **Call 2 — Fix**: in a single script, re-read `/work/dataset.csv` in full, work through each diagnosis item (apply or skip with logged reasoning), and overwrite `/work/dataset.csv` in place at the end.
+2. **Call 2 — Fix**: in a single script, re-read `/work/dataset.csv` in full, work through each diagnosis item (apply or skip with logged reasoning), and write the cleaned DataFrame to `/work/dataset.clean.csv` at the end (`df.to_csv('/work/dataset.clean.csv', index=False)`).
 3. **Call 3 — Log**: write `/work/changes.json` and print summary.
 
 ---
@@ -134,7 +136,8 @@ The diagnosis list is a starting point, not a rigid checklist. You are expected 
 
 ## Output Contract
 
-**`/work/dataset.csv`** — overwritten in place with the cleaned DataFrame.
+**`/work/dataset.clean.csv`** — the cleaned DataFrame. The raw `/work/dataset.csv` is
+left untouched so the analyst can compare pre/post values.
 
 **`/work/changes.json`** — one entry per diagnosis item:
 
@@ -167,7 +170,7 @@ The diagnosis list is a starting point, not a rigid checklist. You are expected 
 
 Print to stdout:
 ```
-Cleaned dataset.csv: N fixes applied, M skipped. Rows: X → Y. Cols: A → B.
+Wrote dataset.clean.csv: N fixes applied, M skipped. Rows: X → Y. Cols: A → B.
 ```
 
 ---

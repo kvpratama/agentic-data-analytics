@@ -7,10 +7,13 @@ description: Analyse a dataset and produce a Markdown report with plots. Use whe
 
 ## Overview
 
-Read `/work/dataset.csv` and `/work/changes.json`, produce a Markdown report
-(`/work/report.md`) with supporting PNG plots in `/work/plots/`. The report follows a
-fixed skeleton with conditional sections — include a conditional section only if the
-data genuinely warrants it.
+Read `/work/dataset.clean.csv` (or `/work/dataset.csv` if the cleaner did not run) and
+`/work/changes.json`, produce a Markdown report (`/work/report.md`) with supporting PNG
+plots in `/work/plots/`. The report follows a fixed skeleton with conditional sections —
+include a conditional section only if the data genuinely warrants it.
+
+The raw `/work/dataset.csv` is always available — consult it when you need to compare
+pre/post-cleaning values (e.g. to verify outlier handling or show the impact of imputation).
 
 ## When to Use
 
@@ -19,10 +22,18 @@ When asked to analyse or summarise a dataset after cleaning has already run.
 ## Execution Context
 
 Use the `execute` shell tool for all code. Each `execute` call is a fresh Python
-process — **state persists via files, not in-memory variables.** Re-read
-`/work/dataset.csv` at the top of each script. Split work across multiple calls to stay
-under the ~10 KB output limit. Create `/work/plots/` (e.g. `os.makedirs('/work/plots',
+process — **state persists via files, not in-memory variables.** Re-read the cleaned
+dataset at the top of each script. Split work across multiple calls to stay under the
+~10 KB output limit. Create `/work/plots/` (e.g. `os.makedirs('/work/plots',
 exist_ok=True)`) before saving any figures.
+
+Use this helper at the top of every script to pick the right file:
+
+```python
+import os
+DATA = '/work/dataset.clean.csv' if os.path.exists('/work/dataset.clean.csv') else '/work/dataset.csv'
+df = pd.read_csv(DATA)
+```
 
 ### How to run Python
 
@@ -39,7 +50,9 @@ through the LLM's quoting.
 
 ## Inputs
 
-- `/work/dataset.csv` — the cleaned dataset
+- `/work/dataset.clean.csv` — the cleaned dataset (preferred input).
+- `/work/dataset.csv` — the raw, untouched dataset. Use as a fallback when
+  `dataset.clean.csv` doesn't exist, or for pre/post comparisons.
 - `/work/changes.json` — the Cleaner's decision log; read this to understand what was
   fixed, skipped, or winsorised before drawing conclusions about the data.
   **May not exist** if the orchestrator skipped the cleaning step. Treat its absence as
@@ -47,10 +60,11 @@ through the LLM's quoting.
 
 ## Workflow
 
-1. **Call 1 — Load**: in a script, read `/work/dataset.csv` and `/work/changes.json` if
-   it exists (use `os.path.exists` — set `changes = []` if missing). Print shape and a
-   quick dtype summary to confirm what you're working with.
-2. **Call 2 — Compute**: re-read `/work/dataset.csv`, run the statistics and correlation
+1. **Call 1 — Load**: in a script, read the cleaned dataset (see helper in Execution
+   Context) and `/work/changes.json` if it exists (use `os.path.exists` — set
+   `changes = []` if missing). Print shape and a quick dtype summary to confirm what
+   you're working with.
+2. **Call 2 — Compute**: re-read the cleaned dataset, run the statistics and correlation
    checks needed to decide which conditional sections are warranted.
 3. **Call 3+ — Plot**: generate and save each plot as a PNG under `/work/plots/`. One
    `execute` call per plot to keep output manageable.

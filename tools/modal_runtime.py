@@ -72,16 +72,22 @@ def download_artifacts(
 ) -> None:
     """Mirror the sandbox's ``/work/`` output artifacts back onto the host.
 
-    Downloads ``report.md``, ``changes.json``, ``profile.json``, and every PNG
-    under ``/work/plots/``. Files that don't exist in the sandbox are skipped
-    silently (e.g. ``changes.json`` is absent when cleaning was skipped).
+    Downloads ``report.md``, ``dataset.clean.csv``, ``changes.json``,
+    ``profile.json``, and every PNG under ``/work/plots/``. Files that don't
+    exist in the sandbox are skipped silently (e.g. ``changes.json`` and
+    ``dataset.clean.csv`` are absent when cleaning was skipped).
 
     Args:
         backend: A live ``ModalSandbox`` backend to download from.
         local_root: Host directory to mirror the artifacts into. Created if
             missing; subdirectories (``plots/``) are created on demand.
     """
-    artifacts = ["/work/report.md", "/work/changes.json", "/work/profile.json"]
+    artifacts = [
+        "/work/report.md",
+        "/work/dataset.clean.csv",
+        "/work/changes.json",
+        "/work/profile.json",
+    ]
 
     # Plot filenames are model-chosen; discover them.
     ls = backend.execute("ls /work/plots 2>/dev/null || true")

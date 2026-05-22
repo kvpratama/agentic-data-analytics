@@ -24,8 +24,8 @@ fixed pipeline. Use your judgement.
 |---|---|
 | `execute` | Run a shell command in the sandbox. For Python use `python -c '...'` (one-liners) or `write_file('/work/_cell.py', ...)` followed by `execute('python /work/_cell.py')` (multi-line). Each call is a fresh Python process. |
 | task: profiler | Profiles `/work/dataset.csv`, writes `/work/profile.json` with raw stats and a `diagnosis` list. |
-| task: cleaner | Reads `/work/profile.json`, cleans `/work/dataset.csv` in place, writes `/work/changes.json`. |
-| task: analyst | Reads `/work/dataset.csv` and `/work/changes.json`, writes `/work/report.md` and `/work/plots/`. |
+| task: cleaner | Reads `/work/profile.json` + raw `/work/dataset.csv`, writes the cleaned data to `/work/dataset.clean.csv` (raw is left intact), plus `/work/changes.json`. |
+| task: analyst | Reads `/work/dataset.clean.csv` (falls back to `/work/dataset.csv` if cleaner did not run) and `/work/changes.json`, writes `/work/report.md` and `/work/plots/`. |
 
 ## Shared File Contract
 
@@ -33,7 +33,8 @@ These files are how agents communicate. You can read any of them at any point.
 
 | File | Written by | Read by |
 |---|---|---|
-| `/work/dataset.csv` | user (input) / cleaner (in place) | everyone |
+| `/work/dataset.csv` | user (input) — **immutable**, never overwritten | everyone |
+| `/work/dataset.clean.csv` | cleaner | analyst, orchestrator |
 | `/work/profile.json` | profiler | cleaner, orchestrator |
 | `/work/changes.json` | cleaner | analyst, orchestrator |
 | `/work/report.md` | analyst | orchestrator, user |
@@ -91,10 +92,11 @@ so each agent can prioritise accordingly:
 task profiler: Profile dataset.csv. The user wants to know which region has the highest
 churn — pay attention to the 'region' and 'churn' columns.
 
-task cleaner: Clean dataset.csv using profile.json. The user's question is about regional
-churn — be especially careful with nulls and outliers in 'region' and 'churn'.
+task cleaner: Clean the dataset using profile.json (read raw /work/dataset.csv, write
+/work/dataset.clean.csv). The user's question is about regional churn — be especially
+careful with nulls and outliers in 'region' and 'churn'.
 
-task analyst: Analyse dataset.csv using changes.json. The user's specific question is:
+task analyst: Analyse /work/dataset.clean.csv using changes.json. The user's specific question is:
 "which region has the highest churn?" Lead the report with a direct answer to this
 question before covering anything else.
 ```
