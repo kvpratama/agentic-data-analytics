@@ -50,8 +50,9 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
     Returns:
         A configured Deep Agent ready to invoke with a user objective.
     """
-    model = get_model()
-    model_small = get_model_small()
+    settings = get_settings()
+    model = get_model(settings)
+    model_small = get_model_small(settings)
 
     profiler: SubAgent = {
         "name": "profiler",
@@ -65,7 +66,11 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
         ),
         "model": model,
         "middleware": [
-            ModelRetryMiddleware(max_retries=5, backoff_factor=2.0, initial_delay=5.0),
+            ModelRetryMiddleware(
+                max_retries=settings.retry_max_retries,
+                backoff_factor=settings.retry_backoff_factor,
+                initial_delay=settings.retry_initial_delay,
+            ),
             ModelFallbackMiddleware(model_small),
         ],
         "skills": ["/skills/profiler_skills/"],
@@ -85,7 +90,11 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
         ),
         "model": model,
         "middleware": [
-            ModelRetryMiddleware(max_retries=5, backoff_factor=2.0, initial_delay=5.0),
+            ModelRetryMiddleware(
+                max_retries=settings.retry_max_retries,
+                backoff_factor=settings.retry_backoff_factor,
+                initial_delay=settings.retry_initial_delay,
+            ),
             ModelFallbackMiddleware(model_small),
         ],
         "skills": ["/skills/cleaner_skills/"],
@@ -106,7 +115,11 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
         ),
         "model": model,
         "middleware": [
-            ModelRetryMiddleware(max_retries=5, backoff_factor=2.0, initial_delay=5.0),
+            ModelRetryMiddleware(
+                max_retries=settings.retry_max_retries,
+                backoff_factor=settings.retry_backoff_factor,
+                initial_delay=settings.retry_initial_delay,
+            ),
             ModelFallbackMiddleware(model_small),
         ],
         "skills": ["/skills/analyst_skills/"],
@@ -127,7 +140,11 @@ an instruction, or a full EDA request — using whichever combination of tools a
 subagents is appropriate. The final deliverable is either a direct answer, a
 report.md, or both.""",
         middleware=[
-            ModelRetryMiddleware(max_retries=5, backoff_factor=2.0, initial_delay=5.0),
+            ModelRetryMiddleware(
+                max_retries=settings.retry_max_retries,
+                backoff_factor=settings.retry_backoff_factor,
+                initial_delay=settings.retry_initial_delay,
+            ),
             ModelFallbackMiddleware(model_small),
         ],
         subagents=[profiler, cleaner, analyst],

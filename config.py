@@ -46,6 +46,9 @@ class Settings(BaseSettings):
             project. Created on first use if missing.
         modal_sandbox_timeout: Hard wall-clock cap (seconds) on a single
             sandbox's lifetime. Defaults to 30 minutes.
+        retry_max_retries: Maximum number of retries for ModelRetryMiddleware.
+        retry_backoff_factor: Exponential backoff factor for ModelRetryMiddleware.
+        retry_initial_delay: Initial delay (seconds) for ModelRetryMiddleware.
     """
 
     model_config = SettingsConfigDict(
@@ -63,6 +66,9 @@ class Settings(BaseSettings):
     temperature: float = 0.0
     modal_app_name: str = "agentic-data-analytics"
     modal_sandbox_timeout: int = 60 * 30
+    retry_max_retries: int = 5
+    retry_backoff_factor: float = 2.0
+    retry_initial_delay: float = 5.0
 
 
 @lru_cache
@@ -95,13 +101,31 @@ def _build_model(settings: Settings, model_id: str) -> BaseChatModel:
     return init_chat_model(**kwargs)
 
 
-def get_model() -> BaseChatModel:
-    """Build the primary LangChain chat model from the current Settings."""
-    settings = get_settings()
+def get_model(settings: Settings | None = None) -> BaseChatModel:
+    """Build the primary LangChain chat model from the current Settings.
+
+    Args:
+        settings: Optional Settings instance. If None, calls get_settings().
+
+    Returns:
+        A configured BaseChatModel instance using the primary model
+        identifier from settings.
+    """
+    if settings is None:
+        settings = get_settings()
     return _build_model(settings, settings.model)
 
 
-def get_model_small() -> BaseChatModel:
-    """Build the small LangChain chat model from the current Settings."""
-    settings = get_settings()
+def get_model_small(settings: Settings | None = None) -> BaseChatModel:
+    """Build the small LangChain chat model from the current Settings.
+
+    Args:
+        settings: Optional Settings instance. If None, calls get_settings().
+
+    Returns:
+        A configured BaseChatModel instance using the small model
+        identifier from settings.
+    """
+    if settings is None:
+        settings = get_settings()
     return _build_model(settings, settings.model_small)

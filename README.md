@@ -162,7 +162,7 @@ agentic-data-analytics/
 ├── agent.py                          ← orchestrator + CLI entrypoint (manages ModalSandbox)
 ├── config.py                         ← Settings + get_model() (multi-provider + Modal settings)
 ├── config_test.py                    ← unit tests for Settings
-├── tools/
+├── runtime/
 │   ├── modal_runtime.py              ← sandbox build, seed, and download helpers
 │   └── modal_runtime_test.py         ← unit tests for sandbox runtime operations
 ├── skills/
@@ -185,14 +185,17 @@ agentic-data-analytics/
 ```env
 # Default
 MODEL=anthropic:claude-sonnet-4-5-20250929
+MODEL_SMALL=anthropic:claude-3-5-sonnet-20241022
 ANTHROPIC_API_KEY=...
 
 # Or
 # MODEL=openai:gpt-4o
+# MODEL_SMALL=openai:gpt-4o-mini
 # OPENAI_API_KEY=...
 
 # Or
 # MODEL=google_genai:gemini-2.0-flash
+# MODEL_SMALL=google_genai:gemini-1.5-flash
 # GOOGLE_API_KEY=...
 
 # Optional Modal App configuration overrides
