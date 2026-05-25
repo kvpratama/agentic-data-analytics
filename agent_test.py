@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
@@ -11,9 +12,9 @@ from agent import create_analytics_agent
 from config import Settings
 
 
-def _capture_create_deep_agent() -> tuple[MagicMock, dict]:
+def _capture_create_deep_agent() -> tuple[MagicMock, dict[str, Any]]:
     """Return a (mock, last_kwargs) pair for patching create_deep_agent."""
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     def fake_create(**kwargs: object) -> object:
         captured.update(kwargs)
