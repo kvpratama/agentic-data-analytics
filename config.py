@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     )
 
     model: str = "anthropic:claude-sonnet-4-5-20250929"
+    model_small: str = "anthropic:claude-3-5-sonnet-20241022"
     model_provider: str | None = None
     base_url: str | None = None
     api_key: SecretStr | None = None
@@ -70,14 +71,21 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def get_model() -> BaseChatModel:
+def _build_model(settings: Settings, model_id: str) -> BaseChatModel:
     """Build a LangChain chat model from the current Settings.
 
     Only forwards optional fields that are explicitly set, so unset values
     fall through to ``init_chat_model``'s default credential resolution.
+
+    Args:
+        settings: The Settings object containing configuration.
+        model_id: The model identifier to use (e.g., from settings.model or
+            settings.model_small).
+
+    Returns:
+        A configured BaseChatModel instance.
     """
-    settings = get_settings()
-    kwargs: dict = {"model": settings.model, "temperature": settings.temperature}
+    kwargs: dict = {"model": model_id, "temperature": settings.temperature}
     if settings.model_provider:
         kwargs["model_provider"] = settings.model_provider
     if settings.base_url:
@@ -85,3 +93,15 @@ def get_model() -> BaseChatModel:
     if settings.api_key is not None:
         kwargs["api_key"] = settings.api_key.get_secret_value()
     return init_chat_model(**kwargs)
+
+
+def get_model() -> BaseChatModel:
+    """Build the primary LangChain chat model from the current Settings."""
+    settings = get_settings()
+    return _build_model(settings, settings.model)
+
+
+def get_model_small() -> BaseChatModel:
+    """Build the small LangChain chat model from the current Settings."""
+    settings = get_settings()
+    return _build_model(settings, settings.model_small)
