@@ -24,7 +24,7 @@ All subagents share a single IPython kernel, allowing them to build on each othe
 
 - `agent.py`: Orchestrator logic and subagent definitions.
 - `config.py`: Centralized configuration and model initialization.
-- `tools/`: Core tools, including the persistent `code_executor`.
+- `runtime/`: Modal sandbox runtime helpers (build_image, seed_sandbox, download_artifacts).
 - `skills/`: Domain-specific `SKILL.md` files for profiler, cleaner, and analyst roles.
 - `work/`: Ephemeral sandbox directories for each analysis run.
 - `dataset/`: Sample CSV files for testing.

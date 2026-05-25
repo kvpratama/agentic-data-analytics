@@ -18,14 +18,15 @@ import sys
 
 import modal
 from deepagents import SubAgent, create_deep_agent
+from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_core.runnables import RunnableConfig
 from langchain_modal import ModalSandbox
 from langgraph.graph.state import CompiledStateGraph
 from rich.console import Console
 from rich.panel import Panel
 
-from config import get_model, get_settings
-from tools.modal_runtime import build_image, download_artifacts, seed_sandbox
+from config import get_model, get_model_small, get_settings
+from runtime.modal_runtime import build_image, download_artifacts, seed_sandbox
 
 console = Console()
 
@@ -49,7 +50,9 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
     Returns:
         A configured Deep Agent ready to invoke with a user objective.
     """
-    model = get_model()
+    settings = get_settings()
+    model = get_model(settings)
+    model_small = get_model_small(settings)
 
     profiler: SubAgent = {
         "name": "profiler",
@@ -62,6 +65,14 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
             "'/work/profile.json'.\n\n" + WORK_RULES
         ),
         "model": model,
+        "middleware": [
+            ModelRetryMiddleware(
+                max_retries=settings.retry_max_retries,
+                backoff_factor=settings.retry_backoff_factor,
+                initial_delay=settings.retry_initial_delay,
+            ),
+            ModelFallbackMiddleware(model_small),
+        ],
         "skills": ["/skills/profiler_skills/"],
     }
 
@@ -78,6 +89,14 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
             "plus '/work/changes.json' logging every decision made.\n\n" + WORK_RULES
         ),
         "model": model,
+        "middleware": [
+            ModelRetryMiddleware(
+                max_retries=settings.retry_max_retries,
+                backoff_factor=settings.retry_backoff_factor,
+                initial_delay=settings.retry_initial_delay,
+            ),
+            ModelFallbackMiddleware(model_small),
+        ],
         "skills": ["/skills/cleaner_skills/"],
     }
 
@@ -95,6 +114,14 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
             "a direct answer to it.\n\n" + WORK_RULES
         ),
         "model": model,
+        "middleware": [
+            ModelRetryMiddleware(
+                max_retries=settings.retry_max_retries,
+                backoff_factor=settings.retry_backoff_factor,
+                initial_delay=settings.retry_initial_delay,
+            ),
+            ModelFallbackMiddleware(model_small),
+        ],
         "skills": ["/skills/analyst_skills/"],
     }
 
@@ -112,6 +139,14 @@ Your goal is to satisfy the user's objective — which may be a specific questio
 an instruction, or a full EDA request — using whichever combination of tools and
 subagents is appropriate. The final deliverable is either a direct answer, a
 report.md, or both.""",
+        middleware=[
+            ModelRetryMiddleware(
+                max_retries=settings.retry_max_retries,
+                backoff_factor=settings.retry_backoff_factor,
+                initial_delay=settings.retry_initial_delay,
+            ),
+            ModelFallbackMiddleware(model_small),
+        ],
         subagents=[profiler, cleaner, analyst],
         backend=backend,
         skills=["/skills/orchestrator_skills/"],

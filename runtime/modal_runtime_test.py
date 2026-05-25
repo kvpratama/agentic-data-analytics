@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_modal import ModalSandbox
 
-from tools.modal_runtime import build_image, download_artifacts, seed_sandbox
+from runtime.modal_runtime import build_image, download_artifacts, seed_sandbox
 
 
 def test_build_image_pins_data_science_stack() -> None:

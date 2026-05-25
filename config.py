@@ -46,6 +46,9 @@ class Settings(BaseSettings):
             project. Created on first use if missing.
         modal_sandbox_timeout: Hard wall-clock cap (seconds) on a single
             sandbox's lifetime. Defaults to 30 minutes.
+        retry_max_retries: Maximum number of retries for ModelRetryMiddleware.
+        retry_backoff_factor: Exponential backoff factor for ModelRetryMiddleware.
+        retry_initial_delay: Initial delay (seconds) for ModelRetryMiddleware.
     """
 
     model_config = SettingsConfigDict(
@@ -56,12 +59,16 @@ class Settings(BaseSettings):
     )
 
     model: str = "anthropic:claude-sonnet-4-5-20250929"
+    model_small: str = "anthropic:claude-3-5-sonnet-20241022"
     model_provider: str | None = None
     base_url: str | None = None
     api_key: SecretStr | None = None
     temperature: float = 0.0
     modal_app_name: str = "agentic-data-analytics"
     modal_sandbox_timeout: int = 60 * 30
+    retry_max_retries: int = 5
+    retry_backoff_factor: float = 2.0
+    retry_initial_delay: float = 5.0
 
 
 @lru_cache
@@ -70,14 +77,21 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def get_model() -> BaseChatModel:
+def _build_model(settings: Settings, model_id: str) -> BaseChatModel:
     """Build a LangChain chat model from the current Settings.
 
     Only forwards optional fields that are explicitly set, so unset values
     fall through to ``init_chat_model``'s default credential resolution.
+
+    Args:
+        settings: The Settings object containing configuration.
+        model_id: The model identifier to use (e.g., from settings.model or
+            settings.model_small).
+
+    Returns:
+        A configured BaseChatModel instance.
     """
-    settings = get_settings()
-    kwargs: dict = {"model": settings.model, "temperature": settings.temperature}
+    kwargs: dict = {"model": model_id, "temperature": settings.temperature}
     if settings.model_provider:
         kwargs["model_provider"] = settings.model_provider
     if settings.base_url:
@@ -85,3 +99,33 @@ def get_model() -> BaseChatModel:
     if settings.api_key is not None:
         kwargs["api_key"] = settings.api_key.get_secret_value()
     return init_chat_model(**kwargs)
+
+
+def get_model(settings: Settings | None = None) -> BaseChatModel:
+    """Build the primary LangChain chat model from the current Settings.
+
+    Args:
+        settings: Optional Settings instance. If None, calls get_settings().
+
+    Returns:
+        A configured BaseChatModel instance using the primary model
+        identifier from settings.
+    """
+    if settings is None:
+        settings = get_settings()
+    return _build_model(settings, settings.model)
+
+
+def get_model_small(settings: Settings | None = None) -> BaseChatModel:
+    """Build the small LangChain chat model from the current Settings.
+
+    Args:
+        settings: Optional Settings instance. If None, calls get_settings().
+
+    Returns:
+        A configured BaseChatModel instance using the small model
+        identifier from settings.
+    """
+    if settings is None:
+        settings = get_settings()
+    return _build_model(settings, settings.model_small)
