@@ -32,7 +32,7 @@ def build_image() -> modal.Image:
     Returns:
         A configured ``modal.Image`` ready to pass to ``modal.Sandbox.create``.
     """
-    return modal.Image.debian_slim(python_version="3.12").pip_install(
+    return modal.Image.debian_slim(python_version="3.12").uv_pip_install(
         "pandas>=3.0",
         "scipy>=1.17",
         "matplotlib>=3.10",

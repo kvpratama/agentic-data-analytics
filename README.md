@@ -16,8 +16,6 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 ```text
                     ╭──────────────────╮
                     │   Orchestrator   │  (main deep agent)
-                    │  • write_todos   │
-                    │  • task          │
                     ╰────────┬─────────╯
                              │ delegates via task()
             ╭────────────────┼────────────────╮

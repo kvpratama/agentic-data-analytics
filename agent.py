@@ -25,7 +25,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from config import get_model, get_settings
-from tools.modal_runtime import build_image, download_artifacts, seed_sandbox
+from runtime.modal_runtime import build_image, download_artifacts, seed_sandbox
 
 console = Console()
 
