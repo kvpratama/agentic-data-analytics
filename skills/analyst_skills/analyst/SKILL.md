@@ -194,7 +194,7 @@ else:
         X = X.fillna(X.median(numeric_only=True))
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
         model = LogisticRegression(max_iter=1000).fit(Xtr, ytr)
-        baseline = y.value_counts().max() / len(y)  # majority-class accuracy (works for any number of classes)
+        baseline = ytr.value_counts().max() / len(ytr)  # majority-class accuracy from training labels (no test leakage; works for any number of classes)
         acc = accuracy_score(yte, model.predict(Xte))
         print(f'baseline={baseline:.3f} model={acc:.3f}')
 
@@ -205,13 +205,13 @@ else:
             coef = model.coef_
             # For multi-class linear models coef_ is 2-D; reduce to per-feature magnitude.
             importances = pd.Series(abs(coef).mean(axis=0) if coef.ndim > 1 else abs(coef).ravel(), index=X.columns)
-        top = importances.sort_values(ascending=True).tail(10)
+        top = importances.sort_values(ascending=True).tail(5)
 
         os.makedirs('/work/plots', exist_ok=True)
         fig, ax = plt.subplots(figsize=(8, 6))
         top.plot.barh(ax=ax)
         ax.set_xlabel('Importance')
-        ax.set_title('Top 10 Features')
+        ax.set_title('Top 5 Features')
         plt.tight_layout()
         plt.savefig('/work/plots/feature_importance.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
