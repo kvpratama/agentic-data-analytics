@@ -37,6 +37,7 @@ def build_image() -> modal.Image:
         "scipy>=1.17",
         "matplotlib>=3.10",
         "seaborn>=0.13",
+        "scikit-learn>=1.8",
     )
 
 

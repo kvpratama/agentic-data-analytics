@@ -135,6 +135,62 @@ variation (i.e. not roughly uniform, not near-constant).
 
 Save a bar chart per interesting column as `/work/plots/cat_<colname>.png`.
 
+#### Predictive Signals
+**Include if**: the user's objective implies a target column (or one is obvious from
+the schema — e.g. `Survived`, `price`, `churn`) **and** a quick baseline model beats
+a naïve majority/mean baseline by a meaningful margin (≥ 5 percentage points for
+accuracy, or ≥ 10% reduction in RMSE).
+
+**Recipe** (deliberately tight — no tuning, no cross-validation, one model only):
+
+1. Pick the target column. Infer task: classification if ≤20 unique non-null values
+   and not a continuous float; otherwise regression.
+2. Drop rows where the target is null. One-hot encode object/category features —
+   but if doing so would produce more than ~50 encoded columns (high-cardinality
+   explosion), **skip the section entirely**. Median-impute remaining NaNs in
+   numeric features.
+3. `train_test_split(X, y, test_size=0.2, random_state=42, stratify=y if classification else None)`.
+4. Fit **one** model:
+   - classification → `LogisticRegression(max_iter=1000)` or
+     `RandomForestClassifier(n_estimators=200, random_state=42)`
+   - regression → `Ridge()` or `RandomForestRegressor(n_estimators=200, random_state=42)`
+5. Report: baseline metric (majority-class accuracy / target-mean RMSE), model metric
+   on the held-out test set, and the top-5 features by `|coef_|` (linear models) or
+   `feature_importances_` (tree models).
+6. Save the top-features bar chart as `/work/plots/feature_importance.png` and
+   reference it in the section.
+
+**Cap**: one paragraph of prose + one plot. If you find yourself writing more, you
+are modeling rather than analyzing — stop and let the user request a deeper follow-up.
+
+Example skeleton:
+
+```python
+import os
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+
+DATA = '/work/dataset.clean.csv' if os.path.exists('/work/dataset.clean.csv') else '/work/dataset.csv'
+df = pd.read_csv(DATA).dropna(subset=['Survived'])
+y = df['Survived']
+X = pd.get_dummies(df.drop(columns=['Survived']), drop_first=True)
+if X.shape[1] > 50:
+    print('SKIP: high-cardinality after one-hot')
+else:
+    X = X.fillna(X.median(numeric_only=True))
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    model = LogisticRegression(max_iter=1000).fit(Xtr, ytr)
+    baseline = max(y.mean(), 1 - y.mean())  # majority-class accuracy
+    acc = accuracy_score(yte, model.predict(Xte))
+    print(f'baseline={baseline:.3f} model={acc:.3f}')
+    # ... save feature_importance.png ...
+```
+
 #### Outlier Notes
 **Include if**: `changes.json` contains any entry with `"action": "skipped"` for an
 outlier diagnosis. Briefly explain which columns have kept outliers and why the Cleaner

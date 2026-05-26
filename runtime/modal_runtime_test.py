@@ -196,3 +196,20 @@ async def test_download_artifacts_removes_stale_files(tmp_path: pathlib.Path) ->
     assert not (local_root / "report.md").exists()
     assert not (local_root / "plots").exists()
     assert written == []
+
+
+def test_build_image_includes_scikit_learn() -> None:
+    """build_image() pins scikit-learn so analyst baselines can run inside the sandbox.
+
+    Modal's Image object doesn't expose the resolved package list publicly, so we
+    introspect the recipe via the documented private attribute used by Modal's own
+    tests (image._deferred_mounts is not it — fall back to source inspection).
+    """
+    import inspect
+
+    from runtime import modal_runtime
+
+    source = inspect.getsource(modal_runtime.build_image)
+    assert "scikit-learn" in source, (
+        "build_image() must pin scikit-learn so the analyst can run predictive baselines"
+    )
