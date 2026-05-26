@@ -12,14 +12,10 @@ dependencies = [
     "langchain-modal>=0.0.4",
     "langchain-openai>=1.2.1",
     "langgraph>=1.2.0",
-    "matplotlib>=3.10.9",
     "modal>=1.4.3",
-    "pandas>=3.0.3",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
     "rich>=15.0.0",
-    "scipy>=1.17.1",
-    "seaborn>=0.13.2",
 ]
 
 [dependency-groups]
