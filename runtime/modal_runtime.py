@@ -62,27 +62,27 @@ async def seed_sandbox(
         FileNotFoundError: If ``skills_dir`` does not exist or is not a
             directory.
     """
-    skills_root = pathlib.Path(skills_dir)
-    if not skills_root.is_dir():
-        raise FileNotFoundError(f"skills_dir not found: {skills_root}")
+    # skills_root = pathlib.Path(skills_dir)
+    # if not skills_root.is_dir():
+    #     raise FileNotFoundError(f"skills_dir not found: {skills_root}")
 
     # Pre-create target directories in sandbox filesystem.
     # modal.Sandbox.open does not automatically create parent directories, so they must exist first.
     dirs_to_create = {"/work"}
-    for entry in skills_root.rglob("*"):
-        if entry.is_file():
-            rel_parent = entry.relative_to(skills_root).parent.as_posix()
-            dirs_to_create.add(f"/skills/{rel_parent}")
+    # for entry in skills_root.rglob("*"):
+    #     if entry.is_file():
+    #         rel_parent = entry.relative_to(skills_root).parent.as_posix()
+    #         dirs_to_create.add(f"/skills/{rel_parent}")
 
     dirs_str = " ".join(shlex.quote(d) for d in sorted(dirs_to_create))
     await asyncio.to_thread(backend.execute, f"mkdir -p {dirs_str}")
 
     uploads: list[tuple[str, bytes]] = [("/work/dataset.csv", pathlib.Path(csv_path).read_bytes())]
 
-    for entry in skills_root.rglob("*"):
-        if entry.is_file():
-            rel = entry.relative_to(skills_root).as_posix()
-            uploads.append((f"/skills/{rel}", entry.read_bytes()))
+    # for entry in skills_root.rglob("*"):
+    #     if entry.is_file():
+    #         rel = entry.relative_to(skills_root).as_posix()
+    #         uploads.append((f"/skills/{rel}", entry.read_bytes()))
 
     await asyncio.to_thread(backend.upload_files, uploads)
 

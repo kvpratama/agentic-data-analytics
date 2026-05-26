@@ -17,7 +17,8 @@ import pathlib
 import sys
 
 import modal
-from deepagents import SubAgent, create_deep_agent
+from deepagents import FilesystemPermission, SubAgent, create_deep_agent
+from deepagents.backends import CompositeBackend, FilesystemBackend
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_core.runnables import RunnableConfig
 from langchain_modal import ModalSandbox
@@ -148,8 +149,21 @@ report.md, or both.""",
             ModelFallbackMiddleware(model_small),
         ],
         subagents=[profiler, cleaner, analyst],
-        backend=backend,
+        # backend=backend,
+        backend=CompositeBackend(
+            default=backend,  # No execute tool
+            routes={
+                "/skills/": FilesystemBackend(root_dir="./skills/", virtual_mode=True),
+            },
+        ),
         skills=["/skills/orchestrator_skills/"],
+        permissions=[
+            FilesystemPermission(
+                operations=["write"],
+                paths=["/skills/**"],
+                mode="deny",
+            ),
+        ],
     )
 
 
