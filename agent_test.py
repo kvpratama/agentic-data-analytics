@@ -86,7 +86,10 @@ def test_create_analytics_agent_wires_middleware_on_each_subagent() -> None:
 
 
 def test_create_analytics_agent_passes_backend_through() -> None:
-    """The supplied ModalSandbox backend is forwarded to create_deep_agent."""
+    """The supplied ModalSandbox backend is forwarded as the CompositeBackend default,
+    with a /skills/ route pointing at the host filesystem."""
+    from deepagents.backends import CompositeBackend, FilesystemBackend
+
     backend = MagicMock(spec=ModalSandbox)
     mock_create, captured = _capture_create_deep_agent()
 
@@ -98,4 +101,8 @@ def test_create_analytics_agent_passes_backend_through() -> None:
     ):
         create_analytics_agent(backend)
 
-    assert captured["backend"] is backend
+    composite = captured["backend"]
+    assert isinstance(composite, CompositeBackend)
+    assert composite.default is backend
+    assert "/skills/" in composite.routes
+    assert isinstance(composite.routes["/skills/"], FilesystemBackend)

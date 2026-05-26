@@ -149,11 +149,13 @@ report.md, or both.""",
             ModelFallbackMiddleware(model_small),
         ],
         subagents=[profiler, cleaner, analyst],
-        # backend=backend,
         backend=CompositeBackend(
-            default=backend,  # No execute tool
+            default=backend,
             routes={
-                "/skills/": FilesystemBackend(root_dir="./skills/", virtual_mode=True),
+                "/skills/": FilesystemBackend(
+                    root_dir=str(pathlib.Path(__file__).resolve().parent / "skills"),
+                    virtual_mode=True,
+                ),
             },
         ),
         skills=["/skills/orchestrator_skills/"],
@@ -201,8 +203,7 @@ async def main() -> None:
     )
     try:
         backend = ModalSandbox(sandbox=modal_sandbox)
-        skills_dir = str(pathlib.Path(__file__).resolve().parent / "skills")
-        await seed_sandbox(backend, csv_path=csv_path, skills_dir=skills_dir)
+        await seed_sandbox(backend, csv_path=csv_path)
 
         agent = create_analytics_agent(backend)
         config = RunnableConfig({"configurable": {}})
