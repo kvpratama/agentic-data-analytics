@@ -135,6 +135,88 @@ variation (i.e. not roughly uniform, not near-constant).
 
 Save a bar chart per interesting column as `/work/plots/cat_<colname>.png`.
 
+#### Predictive Signals
+**Include if**: the user's objective implies a target column (or one is obvious from
+the schema — e.g. `Survived`, `price`, `churn`) **and** a quick baseline model beats
+a naïve majority/mean baseline by a meaningful margin (≥ 5 percentage points for
+accuracy, or ≥ 10% reduction in RMSE).
+
+**Recipe** (deliberately tight — no tuning, no cross-validation, one model only):
+
+1. Pick the target column. Infer task: classification if ≤20 unique non-null values
+   and not a continuous float; otherwise regression.
+2. Drop rows where the target is null. One-hot encode object/category features —
+   but if doing so would produce more than ~50 encoded columns (high-cardinality
+   explosion), **skip the section entirely**. Median-impute remaining NaNs in
+   numeric features.
+3. `train_test_split(X, y, test_size=0.2, random_state=42, stratify=y if classification else None)`.
+4. Fit **one** model:
+   - classification → `LogisticRegression(max_iter=1000)` or
+     `RandomForestClassifier(n_estimators=200, random_state=42)`
+   - regression → `Ridge()` or `RandomForestRegressor(n_estimators=200, random_state=42)`
+5. Report: baseline metric (majority-class accuracy / target-mean RMSE), model metric
+   on the held-out test set, and the top-5 features by `|coef_|` (linear models) or
+   `feature_importances_` (tree models).
+6. Save the top-features bar chart as `/work/plots/feature_importance.png` and
+   reference it in the section.
+
+**Cap**: one paragraph of prose + one plot. If you find yourself writing more, you
+are modeling rather than analyzing — stop and let the user request a deeper follow-up.
+
+Example skeleton:
+
+```python
+import os
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+
+DATA = '/work/dataset.clean.csv' if os.path.exists('/work/dataset.clean.csv') else '/work/dataset.csv'
+df = pd.read_csv(DATA).dropna(subset=['Survived'])
+y = df['Survived']
+features = df.drop(columns=['Survived'])
+
+# Cardinality guard: inspect categoricals BEFORE one-hot expansion to avoid OOM.
+CARD_CAP = 50
+cat_cols = features.select_dtypes(include=['object', 'category']).columns
+high_card = [c for c in cat_cols if features[c].nunique(dropna=True) > CARD_CAP]
+if high_card:
+    print(f'SKIP: high-cardinality columns exceed cap ({CARD_CAP}): {high_card}')
+else:
+    X = pd.get_dummies(features, drop_first=True)
+    if X.shape[1] > CARD_CAP:
+        print('SKIP: high-cardinality after one-hot')
+    else:
+        X = X.fillna(X.median(numeric_only=True))
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        model = LogisticRegression(max_iter=1000).fit(Xtr, ytr)
+        baseline = ytr.value_counts().max() / len(ytr)  # majority-class accuracy from training labels (no test leakage; works for any number of classes)
+        acc = accuracy_score(yte, model.predict(Xte))
+        print(f'baseline={baseline:.3f} model={acc:.3f}')
+
+        # Extract importances (tree models expose feature_importances_; linear models expose coef_).
+        if hasattr(model, 'feature_importances_'):
+            importances = pd.Series(model.feature_importances_, index=X.columns)
+        else:
+            coef = model.coef_
+            # For multi-class linear models coef_ is 2-D; reduce to per-feature magnitude.
+            importances = pd.Series(abs(coef).mean(axis=0) if coef.ndim > 1 else abs(coef).ravel(), index=X.columns)
+        top = importances.sort_values(ascending=True).tail(5)
+
+        os.makedirs('/work/plots', exist_ok=True)
+        fig, ax = plt.subplots(figsize=(8, 6))
+        top.plot.barh(ax=ax)
+        ax.set_xlabel('Importance')
+        ax.set_title('Top 5 Features')
+        plt.tight_layout()
+        plt.savefig('/work/plots/feature_importance.png', dpi=150, bbox_inches='tight')
+        plt.close(fig)
+```
+
 #### Outlier Notes
 **Include if**: `changes.json` contains any entry with `"action": "skipped"` for an
 outlier diagnosis. Briefly explain which columns have kept outliers and why the Cleaner
