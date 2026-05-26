@@ -178,17 +178,43 @@ from sklearn.metrics import accuracy_score
 DATA = '/work/dataset.clean.csv' if os.path.exists('/work/dataset.clean.csv') else '/work/dataset.csv'
 df = pd.read_csv(DATA).dropna(subset=['Survived'])
 y = df['Survived']
-X = pd.get_dummies(df.drop(columns=['Survived']), drop_first=True)
-if X.shape[1] > 50:
-    print('SKIP: high-cardinality after one-hot')
+features = df.drop(columns=['Survived'])
+
+# Cardinality guard: inspect categoricals BEFORE one-hot expansion to avoid OOM.
+CARD_CAP = 50
+cat_cols = features.select_dtypes(include=['object', 'category']).columns
+high_card = [c for c in cat_cols if features[c].nunique(dropna=True) > CARD_CAP]
+if high_card:
+    print(f'SKIP: high-cardinality columns exceed cap ({CARD_CAP}): {high_card}')
 else:
-    X = X.fillna(X.median(numeric_only=True))
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    model = LogisticRegression(max_iter=1000).fit(Xtr, ytr)
-    baseline = max(y.mean(), 1 - y.mean())  # majority-class accuracy
-    acc = accuracy_score(yte, model.predict(Xte))
-    print(f'baseline={baseline:.3f} model={acc:.3f}')
-    # ... save feature_importance.png ...
+    X = pd.get_dummies(features, drop_first=True)
+    if X.shape[1] > CARD_CAP:
+        print('SKIP: high-cardinality after one-hot')
+    else:
+        X = X.fillna(X.median(numeric_only=True))
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        model = LogisticRegression(max_iter=1000).fit(Xtr, ytr)
+        baseline = y.value_counts().max() / len(y)  # majority-class accuracy (works for any number of classes)
+        acc = accuracy_score(yte, model.predict(Xte))
+        print(f'baseline={baseline:.3f} model={acc:.3f}')
+
+        # Extract importances (tree models expose feature_importances_; linear models expose coef_).
+        if hasattr(model, 'feature_importances_'):
+            importances = pd.Series(model.feature_importances_, index=X.columns)
+        else:
+            coef = model.coef_
+            # For multi-class linear models coef_ is 2-D; reduce to per-feature magnitude.
+            importances = pd.Series(abs(coef).mean(axis=0) if coef.ndim > 1 else abs(coef).ravel(), index=X.columns)
+        top = importances.sort_values(ascending=True).tail(10)
+
+        os.makedirs('/work/plots', exist_ok=True)
+        fig, ax = plt.subplots(figsize=(8, 6))
+        top.plot.barh(ax=ax)
+        ax.set_xlabel('Importance')
+        ax.set_title('Top 10 Features')
+        plt.tight_layout()
+        plt.savefig('/work/plots/feature_importance.png', dpi=150, bbox_inches='tight')
+        plt.close(fig)
 ```
 
 #### Outlier Notes
