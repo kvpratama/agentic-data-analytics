@@ -4,19 +4,21 @@ Three responsibilities:
 
 * :func:`build_image` declares the Modal Image with the data-science stack
   baked in.
-* :func:`seed_sandbox` uploads the dataset and skills tree into the sandbox.
+* :func:`seed_sandbox` uploads the dataset into the sandbox.
 * :func:`download_artifacts` mirrors the sandbox's ``/work/`` outputs back
   onto the host so users can open ``report.md`` and the plots locally.
 
 All Modal-facing calls go through the ``ModalSandbox`` backend instance the
 caller passes in — these helpers do not own the sandbox's lifecycle.
+
+Note: Skills are served to the orchestrator from the host filesystem via a
+``CompositeBackend`` route in :mod:`agent`, so they are not uploaded here.
 """
 
 from __future__ import annotations
 
 import asyncio
 import pathlib
-import shlex
 import shutil
 
 import modal
@@ -45,45 +47,18 @@ async def seed_sandbox(
     backend: ModalSandbox,
     *,
     csv_path: str,
-    skills_dir: str,
 ) -> None:
-    """Upload the dataset and skills tree into the sandbox.
-
-    The dataset lands at ``/work/dataset.csv``. Every file under ``skills_dir``
-    is mirrored to ``/skills/<relative-path>`` preserving the directory
-    layout so ``SkillsMiddleware`` can discover SKILL.md files.
+    """Upload the dataset into the sandbox at ``/work/dataset.csv``.
 
     Args:
         backend: A live ``ModalSandbox`` backend to upload into.
         csv_path: Host path to the input CSV.
-        skills_dir: Host path to the project's ``skills/`` directory.
-
-    Raises:
-        FileNotFoundError: If ``skills_dir`` does not exist or is not a
-            directory.
     """
-    skills_root = pathlib.Path(skills_dir)
-    if not skills_root.is_dir():
-        raise FileNotFoundError(f"skills_dir not found: {skills_root}")
-
     # Pre-create target directories in sandbox filesystem.
     # modal.Sandbox.open does not automatically create parent directories, so they must exist first.
-    dirs_to_create = {"/work"}
-    for entry in skills_root.rglob("*"):
-        if entry.is_file():
-            rel_parent = entry.relative_to(skills_root).parent.as_posix()
-            dirs_to_create.add(f"/skills/{rel_parent}")
-
-    dirs_str = " ".join(shlex.quote(d) for d in sorted(dirs_to_create))
-    await asyncio.to_thread(backend.execute, f"mkdir -p {dirs_str}")
+    await asyncio.to_thread(backend.execute, "mkdir -p /work")
 
     uploads: list[tuple[str, bytes]] = [("/work/dataset.csv", pathlib.Path(csv_path).read_bytes())]
-
-    for entry in skills_root.rglob("*"):
-        if entry.is_file():
-            rel = entry.relative_to(skills_root).as_posix()
-            uploads.append((f"/skills/{rel}", entry.read_bytes()))
-
     await asyncio.to_thread(backend.upload_files, uploads)
 
 
