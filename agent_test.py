@@ -88,6 +88,9 @@ def test_create_analytics_agent_wires_middleware_on_each_subagent() -> None:
 def test_create_analytics_agent_passes_backend_through() -> None:
     """The supplied ModalSandbox backend is forwarded as the CompositeBackend default,
     with a /skills/ route pointing at the host filesystem."""
+    import pathlib
+
+    from deepagents import FilesystemPermission
     from deepagents.backends import CompositeBackend, FilesystemBackend
 
     backend = MagicMock(spec=ModalSandbox)
@@ -105,4 +108,17 @@ def test_create_analytics_agent_passes_backend_through() -> None:
     assert isinstance(composite, CompositeBackend)
     assert composite.default is backend
     assert "/skills/" in composite.routes
-    assert isinstance(composite.routes["/skills/"], FilesystemBackend)
+    skills_fs = composite.routes["/skills/"]
+    assert isinstance(skills_fs, FilesystemBackend)
+    expected_skills_root = pathlib.Path(__file__).resolve().parent / "skills"
+    assert pathlib.Path(skills_fs.cwd) == expected_skills_root
+    assert skills_fs.virtual_mode is True
+
+    permissions = captured["permissions"]
+    assert any(
+        isinstance(p, FilesystemPermission)
+        and p.mode == "deny"
+        and "write" in p.operations
+        and any("/skills/" in path for path in p.paths)
+        for p in permissions
+    ), "Expected a deny-write FilesystemPermission for '/skills/'"
