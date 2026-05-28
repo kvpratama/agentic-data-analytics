@@ -9,6 +9,7 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 - **Single `execute` tool surface** — each subagent has the full power of pandas / scipy / matplotlib via one `execute` tool to run commands inside the sandbox container.
 - **Skills (progressive disclosure)** — methodology lives in `SKILL.md` files under `skills/`, mounted into the sandbox filesystem and loaded on demand.
 - **File-based state persistence** — state persists across subagents and execution calls through explicit files (`/work/dataset.csv`, `/work/profile.json`, etc.) in the sandbox rather than in-memory kernel variables.
+- **Thread-scoped follow-ups** — LangGraph Studio/API threads keep chat history, while host-side mirrors under `work/<dataset-stem>_<thread_id>/` preserve `/work/` artifacts across turns.
 - **Multi-provider model configuration** — swap between Anthropic, OpenAI, or Google with a single `.env` change.
 
 ## Architecture
@@ -90,22 +91,58 @@ uv run python agent.py dataset/Titanic-Dataset.csv "Investigate factors that aff
 The agent will:
 
 1. Boot an isolated `ModalSandbox` loaded with a custom Python image containing `pandas`, `scipy`, `matplotlib`, and `seaborn`.
-2. Seed the sandbox with the input dataset (copied to `/work/dataset.csv`) and the subagents' skills (copied to `/skills/`).
+2. Seed the sandbox with the input dataset (copied to `/work/dataset.csv`) and serve the subagents' skills from the host filesystem.
 3. Profile the dataset and identify quality issues (`/work/profile.json`).
 4. Clean the data and write it to `/work/dataset.clean.csv` inside the sandbox, preserving the original `/work/dataset.csv`.
 5. Analyze the cleaned data, generating plots and a final report (`/work/report.md`).
-6. Download the resulting output artifacts back to your host machine into `work/<dataset-stem>/` and terminate the sandbox VM.
+6. Download the resulting output artifacts back to your host machine into `work/<dataset-stem>_<thread_id>/` and terminate the sandbox VM.
 
-Output artifacts land in `work/<dataset-stem>/`:
+Output artifacts land in a thread-scoped mirror such as `work/Titanic-Dataset_8f4f.../`:
 
 ```text
-work/Titanic-Dataset/
+work/Titanic-Dataset_<thread_id>/
+├── dataset.csv       ← raw input copied once for this thread
 ├── dataset.clean.csv ← cleaned copy (your original is untouched)
 ├── profile.json      ← profiler output
 ├── changes.json      ← cleaner log of changes
 ├── plots/*.png       ← analyst visualizations
 └── report.md         ← final insights report
 ```
+
+### LangGraph Studio
+
+The repository includes `langgraph.json`, exposing the graph as `analytics`:
+
+```json
+{
+  "dependencies": ["."],
+  "graphs": {
+    "analytics": "./agent.py:make_graph"
+  },
+  "env": ".env"
+}
+```
+
+Run Studio from the project root:
+
+```bash
+uv run langgraph dev
+```
+
+Create a thread with this configurable payload:
+
+```json
+{
+  "csv_path": "/absolute/path/to/dataset/Titanic-Dataset.csv",
+  "stem": "Titanic-Dataset"
+}
+```
+
+Studio supplies `thread_id`. Each turn creates a fresh Modal sandbox, seeds it
+from `work/<stem>_<thread_id>/`, runs the agent, mirrors artifacts back to that
+directory, and terminates the sandbox. To analyze a different dataset, start a
+new thread. Old thread mirrors can be removed manually from `work/` when they
+are no longer needed.
 
 ## Try it on more datasets
 
@@ -159,7 +196,8 @@ uv run python agent.py dataset/diamonds.csv \
 
 ```text
 agentic-data-analytics/
-├── agent.py                          ← orchestrator + CLI entrypoint (manages ModalSandbox)
+├── agent.py                          ← LangGraph factory, orchestrator, and CLI entrypoint
+├── agent_middleware.py               ← mirrors /work artifacts and terminates sandboxes
 ├── config.py                         ← Settings + get_model() (multi-provider + Modal settings)
 ├── config_test.py                    ← unit tests for Settings
 ├── runtime/
@@ -173,6 +211,7 @@ agentic-data-analytics/
 ├── dataset/                          ← gitignored, downloaded on demand
 ├── work/                             ← gitignored, host-side downloaded artifacts per-run
 ├── pyproject.toml
+├── langgraph.json                    ← LangGraph Studio/API graph entrypoint
 ├── .env.example
 ├── .gitignore
 └── README.md                         ← this file

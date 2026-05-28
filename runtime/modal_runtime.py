@@ -17,7 +17,6 @@ Note: Skills are served to the orchestrator from the host filesystem via a
 
 from __future__ import annotations
 
-import asyncio
 import pathlib
 import shutil
 
@@ -46,20 +45,52 @@ def build_image() -> modal.Image:
 async def seed_sandbox(
     backend: ModalSandbox,
     *,
-    csv_path: str,
+    csv_path: str | None = None,
+    mirror_root: pathlib.Path | None = None,
 ) -> None:
-    """Upload the dataset into the sandbox at ``/work/dataset.csv``.
+    """Upload host-side mirror files into the sandbox under ``/work/``.
 
     Args:
         backend: A live ``ModalSandbox`` backend to upload into.
-        csv_path: Host path to the input CSV.
+        csv_path: Host path to the input CSV. Kept for the one-shot CLI-compatible
+            call path; uploaded as ``/work/dataset.csv``.
+        mirror_root: Host mirror directory for a thread. Any supported files
+            already present in it are uploaded to their matching ``/work/`` paths.
+
+    Raises:
+        ValueError: If neither ``csv_path`` nor ``mirror_root`` is provided.
     """
+    if csv_path is None and mirror_root is None:
+        msg = "seed_sandbox requires csv_path or mirror_root"
+        raise ValueError(msg)
+
     # Pre-create target directories in sandbox filesystem.
     # modal.Sandbox.open does not automatically create parent directories, so they must exist first.
-    await asyncio.to_thread(backend.execute, "mkdir -p /work")
+    backend.execute("mkdir -p /work /work/plots")
 
-    uploads: list[tuple[str, bytes]] = [("/work/dataset.csv", pathlib.Path(csv_path).read_bytes())]
-    await asyncio.to_thread(backend.upload_files, uploads)
+    uploads: list[tuple[str, bytes]] = []
+    if mirror_root is not None:
+        top_level = [
+            ("dataset.csv", "/work/dataset.csv"),
+            ("profile.json", "/work/profile.json"),
+            ("dataset.clean.csv", "/work/dataset.clean.csv"),
+            ("changes.json", "/work/changes.json"),
+            ("report.md", "/work/report.md"),
+        ]
+        for local_name, remote_path in top_level:
+            source = mirror_root / local_name
+            if source.exists():
+                uploads.append((remote_path, source.read_bytes()))
+
+        plots_dir = mirror_root / "plots"
+        if plots_dir.exists():
+            for plot in sorted(plots_dir.glob("*.png")):
+                uploads.append((f"/work/plots/{plot.name}", plot.read_bytes()))
+    else:
+        uploads.append(("/work/dataset.csv", pathlib.Path(str(csv_path)).read_bytes()))
+
+    if uploads:
+        backend.upload_files(uploads)
 
 
 async def download_artifacts(
@@ -74,15 +105,14 @@ async def download_artifacts(
     exist in the sandbox are skipped silently (e.g. ``changes.json`` and
     ``dataset.clean.csv`` are absent when cleaning was skipped).
 
-    Any pre-existing ``local_root`` is removed before downloading so that
-    stale artifacts from a previous run cannot persist and be misinterpreted
-    as current results.
+    Top-level files are overwritten in place so durable inputs such as
+    ``dataset.csv`` remain available across turns. The local ``plots/`` directory
+    is refreshed before plot downloads so deleted sandbox plots do not linger.
 
     Args:
         backend: A live ``ModalSandbox`` backend to download from.
-        local_root: Host directory to mirror the artifacts into. Removed and
-            recreated on each call; subdirectories (``plots/``) are created
-            on demand.
+        local_root: Host directory to mirror the artifacts into. Created on
+            demand; subdirectories (``plots/``) are created as needed.
 
     Returns:
         Sorted list of host paths that were actually written.
@@ -95,19 +125,19 @@ async def download_artifacts(
     ]
 
     # Plot filenames are model-chosen; discover them.
-    ls = await asyncio.to_thread(backend.execute, "ls -1 /work/plots 2>/dev/null || true")
+    ls = backend.execute("ls -1 /work/plots 2>/dev/null || true")
     for line in ls.output.splitlines():
         name = line.strip()
         if name:
             artifacts.append(f"/work/plots/{name}")
 
-    # Wipe any stale artifacts from a previous run before writing new ones.
-    if local_root.exists():
-        shutil.rmtree(local_root)
     local_root.mkdir(parents=True, exist_ok=True)
+    plots_root = local_root / "plots"
+    if plots_root.exists():
+        shutil.rmtree(plots_root)
 
     written: list[pathlib.Path] = []
-    results = await asyncio.to_thread(backend.download_files, artifacts)
+    results = backend.download_files(artifacts)
     for result in results:
         if result.content is None:
             continue

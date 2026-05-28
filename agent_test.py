@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import pathlib
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_modal import ModalSandbox
 
-from agent import create_analytics_agent
+from agent import _bootstrap_mirror, create_analytics_agent, make_graph
 from config import Settings
 
 
@@ -122,3 +123,95 @@ def test_create_analytics_agent_passes_backend_through() -> None:
         and any("/skills/" in path for path in p.paths)
         for p in permissions
     ), "Expected a deny-write FilesystemPermission for '/skills/'"
+
+
+def test_bootstrap_mirror_copies_dataset_once(tmp_path: pathlib.Path) -> None:
+    """Mirror bootstrap creates dataset.csv and does not overwrite it later."""
+    source = tmp_path / "source.csv"
+    source.write_bytes(b"a\n1\n")
+    mirror = tmp_path / "work" / "source_thread"
+
+    _bootstrap_mirror(mirror, source)
+    assert (mirror / "dataset.csv").read_bytes() == b"a\n1\n"
+
+    source.write_bytes(b"a\n2\n")
+    _bootstrap_mirror(mirror, source)
+    assert (mirror / "dataset.csv").read_bytes() == b"a\n1\n"
+
+
+async def test_make_graph_creates_fresh_sandbox_and_seeds_first_turn(
+    tmp_path: pathlib.Path,
+) -> None:
+    """make_graph bootstraps a thread mirror and seeds a fresh Modal sandbox."""
+    csv = tmp_path / "input.csv"
+    csv.write_bytes(b"a,b\n1,2\n")
+    sandbox = MagicMock(name="Sandbox")
+    backend = MagicMock(spec=ModalSandbox)
+    graph = MagicMock(name="CompiledStateGraph")
+
+    with (
+        patch("agent._project_root", return_value=tmp_path),
+        patch("agent.modal.App.lookup.aio", new=AsyncMock(return_value=MagicMock())),
+        patch("agent.modal.Sandbox.create.aio", new=AsyncMock(return_value=sandbox)) as create,
+        patch("agent.ModalSandbox", return_value=backend),
+        patch("agent.seed_sandbox", new=AsyncMock()) as seed,
+        patch("agent.create_analytics_agent", return_value=graph) as create_agent,
+        patch("agent.get_settings", return_value=Settings(_env_file=None)),  # type: ignore
+    ):
+        result = await make_graph(
+            {
+                "configurable": {
+                    "csv_path": str(csv),
+                    "stem": "input",
+                    "thread_id": "thread-1",
+                }
+            }
+        )
+
+    mirror = tmp_path / "work" / "input_thread-1"
+    assert result is graph
+    assert (mirror / "dataset.csv").read_bytes() == b"a,b\n1,2\n"
+    create.assert_awaited_once()
+    assert create.await_args is not None
+    assert create.await_args.kwargs["tags"] == {"thread_id": "thread-1"}
+    seed.assert_awaited_once_with(backend, mirror_root=mirror)
+    create_agent.assert_called_once_with(backend, mirror_root=mirror)
+
+
+async def test_make_graph_reuploads_existing_mirror_on_followup(
+    tmp_path: pathlib.Path,
+) -> None:
+    """make_graph keeps thread workspace continuity by seeding accumulated files."""
+    csv = tmp_path / "input.csv"
+    csv.write_bytes(b"raw")
+    mirror = tmp_path / "work" / "input_thread-1"
+    plots = mirror / "plots"
+    plots.mkdir(parents=True)
+    (mirror / "dataset.csv").write_bytes(b"raw")
+    (mirror / "profile.json").write_bytes(b"{}")
+    (mirror / "dataset.clean.csv").write_bytes(b"clean")
+    (plots / "chart.png").write_bytes(b"png")
+
+    backend = MagicMock(spec=ModalSandbox)
+
+    with (
+        patch("agent._project_root", return_value=tmp_path),
+        patch("agent.modal.App.lookup.aio", new=AsyncMock(return_value=MagicMock())),
+        patch("agent.modal.Sandbox.create.aio", new=AsyncMock(return_value=MagicMock())) as create,
+        patch("agent.ModalSandbox", return_value=backend),
+        patch("agent.seed_sandbox", new=AsyncMock()) as seed,
+        patch("agent.create_analytics_agent", return_value=MagicMock()),
+        patch("agent.get_settings", return_value=Settings(_env_file=None)),  # type: ignore
+    ):
+        await make_graph(
+            {
+                "configurable": {
+                    "csv_path": str(csv),
+                    "stem": "input",
+                    "thread_id": "thread-1",
+                }
+            }
+        )
+
+    create.assert_awaited_once()
+    seed.assert_awaited_once_with(backend, mirror_root=mirror)

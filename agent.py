@@ -14,20 +14,27 @@ Example:
 import asyncio
 import os
 import pathlib
+import shutil
 import sys
+import uuid
 
 import modal
 from deepagents import FilesystemPermission, SubAgent, create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend
-from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ModelFallbackMiddleware,
+    ModelRetryMiddleware,
+)
 from langchain_core.runnables import RunnableConfig
 from langchain_modal import ModalSandbox
 from langgraph.graph.state import CompiledStateGraph
 from rich.console import Console
 from rich.panel import Panel
 
+from agent_middleware import SandboxLifecycleMiddleware
 from config import get_model, get_model_small, get_settings
-from runtime.modal_runtime import build_image, download_artifacts, seed_sandbox
+from runtime.modal_runtime import build_image, seed_sandbox
 
 console = Console()
 
@@ -40,13 +47,90 @@ WORK_RULES = (
 )
 
 
-def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
+def _project_root() -> pathlib.Path:
+    """Return the repository root containing this module."""
+    return pathlib.Path(__file__).resolve().parent
+
+
+def _bootstrap_mirror(mirror_root: pathlib.Path, csv_path: pathlib.Path) -> None:
+    """Create a thread mirror and copy the raw CSV into it on first use.
+
+    Args:
+        mirror_root: Host-side per-thread workspace directory.
+        csv_path: Source CSV path supplied by the caller.
+    """
+    mirror_root.mkdir(parents=True, exist_ok=True)
+    dataset = mirror_root / "dataset.csv"
+    if not dataset.exists():
+        shutil.copyfile(csv_path, dataset)
+
+
+async def _create_sandbox(thread_id: str) -> ModalSandbox:
+    """Create a fresh Modal sandbox backend for one graph turn.
+
+    Args:
+        thread_id: LangGraph thread ID used as a Modal sandbox tag.
+
+    Returns:
+        A ``ModalSandbox`` backend wrapping a new Modal sandbox.
+    """
+    settings = get_settings()
+    app = await modal.App.lookup.aio(settings.modal_app_name, create_if_missing=True)
+    modal_sandbox = await modal.Sandbox.create.aio(
+        image=build_image(),
+        app=app,
+        tags={"thread_id": thread_id},
+        timeout=settings.modal_sandbox_timeout,
+        cpu=2.0,
+        memory=4096,
+    )
+    return ModalSandbox(sandbox=modal_sandbox)
+
+
+async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
+    """Build a fresh per-turn analytics graph for LangGraph Studio.
+
+    Args:
+        config: Runnable config with ``configurable.csv_path``,
+            ``configurable.stem``, and ``configurable.thread_id``.
+
+    Returns:
+        A compiled analytics graph backed by a freshly seeded Modal sandbox.
+    """
+    configurable = config["configurable"]
+    if "thread_id" not in configurable:
+        configurable["thread_id"] = "temp_thread_id"
+    thread_id = str(configurable["thread_id"])
+
+    if "csv_path" not in configurable:
+        configurable["csv_path"] = "dataset/Titanic-Dataset.csv"
+    csv_path = pathlib.Path(str(configurable["csv_path"])).resolve()
+    if "stem" not in configurable:
+        configurable["stem"] = csv_path.stem
+    stem = str(configurable["stem"])
+
+    mirror_root = _project_root() / "work" / f"{stem}_{thread_id}"
+    _bootstrap_mirror(mirror_root, csv_path)
+
+    backend = await _create_sandbox(thread_id)
+    await seed_sandbox(backend, mirror_root=mirror_root)
+    return create_analytics_agent(backend, mirror_root=mirror_root)
+
+
+def create_analytics_agent(
+    backend: ModalSandbox,
+    *,
+    mirror_root: pathlib.Path | None = None,
+) -> CompiledStateGraph:
     """Build the Deep Agent orchestrator with profiler, cleaner, and analyst subagents.
 
     Args:
         backend: A live ``ModalSandbox`` backend shared across all subagents.
             All filesystem operations and the auto-injected ``execute`` tool
             route through this sandbox.
+        mirror_root: Optional host-side mirror directory. When supplied, a
+            lifecycle middleware downloads artifacts there and terminates the
+            sandbox after the turn.
 
     Returns:
         A configured Deep Agent ready to invoke with a user objective.
@@ -126,6 +210,17 @@ def create_analytics_agent(backend: ModalSandbox) -> CompiledStateGraph:
         "skills": ["/skills/analyst_skills/"],
     }
 
+    middleware: list[AgentMiddleware] = [
+        ModelRetryMiddleware(
+            max_retries=settings.retry_max_retries,
+            backoff_factor=settings.retry_backoff_factor,
+            initial_delay=settings.retry_initial_delay,
+        ),
+        ModelFallbackMiddleware(model_small),
+    ]
+    if mirror_root is not None:
+        middleware.append(SandboxLifecycleMiddleware(backend=backend, mirror_root=mirror_root))
+
     return create_deep_agent(
         model=model,
         system_prompt="""\
@@ -140,14 +235,7 @@ Your goal is to satisfy the user's objective — which may be a specific questio
 an instruction, or a full EDA request — using whichever combination of tools and
 subagents is appropriate. The final deliverable is either a direct answer, a
 report.md, or both.""",
-        middleware=[
-            ModelRetryMiddleware(
-                max_retries=settings.retry_max_retries,
-                backoff_factor=settings.retry_backoff_factor,
-                initial_delay=settings.retry_initial_delay,
-            ),
-            ModelFallbackMiddleware(model_small),
-        ],
+        middleware=middleware,
         subagents=[profiler, cleaner, analyst],
         backend=CompositeBackend(
             default=backend,
@@ -170,7 +258,7 @@ report.md, or both.""",
 
 
 async def main() -> None:
-    """CLI entrypoint: parse args, start sandbox, run the agent, mirror artifacts."""
+    """CLI entrypoint: parse args, build a graph, and stream one turn."""
     if len(sys.argv) < 3:
         console.print("[red]Usage: python agent.py <csv_path> <objective>[/red]")
         sys.exit(1)
@@ -182,8 +270,10 @@ async def main() -> None:
         console.print(f"[red]Error: CSV file '{csv_path}' not found.[/red]")
         sys.exit(1)
 
-    stem = os.path.splitext(os.path.basename(csv_path))[0]
-    local_root = pathlib.Path(f"work/{stem}")
+    csv_abs = pathlib.Path(csv_path).resolve()
+    stem = csv_abs.stem
+    thread_id = str(uuid.uuid4())
+    local_root = _project_root() / "work" / f"{stem}_{thread_id}"
 
     console.print(
         Panel(
@@ -192,45 +282,34 @@ async def main() -> None:
         )
     )
 
-    settings = get_settings()
-    app = await modal.App.lookup.aio(settings.modal_app_name, create_if_missing=True)
-    modal_sandbox = await modal.Sandbox.create.aio(
-        image=build_image(),
-        app=app,
-        timeout=settings.modal_sandbox_timeout,
-        cpu=2.0,
-        memory=4096,
-    )
-    try:
-        backend = ModalSandbox(sandbox=modal_sandbox)
-        await seed_sandbox(backend, csv_path=csv_path)
+    config: RunnableConfig = {
+        "configurable": {
+            "csv_path": str(csv_abs),
+            "stem": stem,
+            "thread_id": thread_id,
+        }
+    }
+    agent = await make_graph(config)
+    async for chunk in agent.astream({"messages": [("user", objective)]}, config=config):
+        if "model" in chunk:
+            msg = chunk["model"]["messages"][-1]
+            if msg.content:
+                console.print(f"[dim]{msg.name or 'agent'}:[/dim] {msg.content}")
+        elif "tools" in chunk:
+            msg = chunk["tools"]["messages"][-1]
+            if msg.content:
+                console.print(f"[italic]{msg.name or 'agent'}:[/italic] {msg.content}")
 
-        agent = create_analytics_agent(backend)
-        config = RunnableConfig({"configurable": {}})
-        async for chunk in agent.astream({"messages": [("user", objective)]}, config=config):
-            if "model" in chunk:
-                msg = chunk["model"]["messages"][-1]
-                if msg.content:
-                    console.print(f"[dim]{msg.name or 'agent'}:[/dim] {msg.content}")
-            elif "tools" in chunk:
-                msg = chunk["tools"]["messages"][-1]
-                if msg.content:
-                    console.print(f"[italic]{msg.name or 'agent'}:[/italic] {msg.content}")
-
-        downloaded = await download_artifacts(backend, local_root=local_root)
-
-        report_path = local_root / "report.md"
-        if report_path in downloaded:
-            console.print(
-                Panel(
-                    f"[bold green]Analysis complete![/bold green]\n"
-                    f"Final report saved to: [underline]{report_path}[/underline]"
-                )
+    report_path = local_root / "report.md"
+    if report_path.exists():
+        console.print(
+            Panel(
+                f"[bold green]Analysis complete![/bold green]\n"
+                f"Final report saved to: [underline]{report_path}[/underline]"
             )
-        else:
-            console.print("[yellow]Warning: report.md was not generated.[/yellow]")
-    finally:
-        await modal_sandbox.terminate.aio()
+        )
+    else:
+        console.print("[yellow]Warning: report.md was not generated.[/yellow]")
 
 
 if __name__ == "__main__":

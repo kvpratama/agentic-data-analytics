@@ -55,6 +55,37 @@ async def test_seed_sandbox_does_not_upload_skills(tmp_path: pathlib.Path) -> No
     assert not any(p.startswith("/skills/") for p in paths)
 
 
+async def test_seed_sandbox_uploads_existing_mirror_artifacts(tmp_path: pathlib.Path) -> None:
+    """seed_sandbox uploads every supported file already present in a mirror."""
+    mirror = tmp_path / "mirror"
+    plots = mirror / "plots"
+    plots.mkdir(parents=True)
+    (mirror / "dataset.csv").write_bytes(b"raw")
+    (mirror / "profile.json").write_bytes(b"{}")
+    (mirror / "dataset.clean.csv").write_bytes(b"clean")
+    (mirror / "changes.json").write_bytes(b"[]")
+    (mirror / "report.md").write_bytes(b"# report")
+    (plots / "chart.png").write_bytes(b"png")
+
+    backend = MagicMock(spec=ModalSandbox)
+
+    await seed_sandbox(backend, mirror_root=mirror)
+
+    mkdir_cmd: str = backend.execute.call_args[0][0]
+    assert "/work" in mkdir_cmd
+    assert "/work/plots" in mkdir_cmd
+
+    uploaded = backend.upload_files.call_args[0][0]
+    assert {p for p, _ in uploaded} == {
+        "/work/dataset.csv",
+        "/work/profile.json",
+        "/work/dataset.clean.csv",
+        "/work/changes.json",
+        "/work/report.md",
+        "/work/plots/chart.png",
+    }
+
+
 def _make_dl_result(path: str, content: bytes | None, error: str | None = None) -> MagicMock:
     """Build a download_files-style result object."""
     r = MagicMock()
@@ -125,31 +156,34 @@ async def test_download_artifacts_handles_empty_plots_dir(tmp_path: pathlib.Path
     assert written == [local_root / "report.md"]
 
 
-async def test_download_artifacts_removes_stale_files(tmp_path: pathlib.Path) -> None:
-    """Pre-existing artifacts from a previous run are wiped before downloading."""
+async def test_download_artifacts_preserves_raw_dataset_and_refreshes_plots(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Downloads overwrite artifacts without deleting the raw dataset; plots are refreshed."""
     backend = MagicMock(spec=ModalSandbox)
-    backend.execute.return_value = MagicMock(output="")
-    # This run produces no report.md
+    backend.execute.return_value = MagicMock(output="new.png\n")
     backend.download_files.return_value = [
-        _make_dl_result("/work/report.md", None, "missing"),
+        _make_dl_result("/work/report.md", b"# fresh"),
         _make_dl_result("/work/dataset.clean.csv", None, "missing"),
         _make_dl_result("/work/changes.json", None, "missing"),
         _make_dl_result("/work/profile.json", None, "missing"),
+        _make_dl_result("/work/plots/new.png", b"<new>"),
     ]
 
     local_root = tmp_path / "out"
-    # Simulate stale artifacts from a prior run
     local_root.mkdir(parents=True)
+    (local_root / "dataset.csv").write_bytes(b"raw")
     (local_root / "report.md").write_bytes(b"# stale report")
     (local_root / "plots").mkdir()
     (local_root / "plots" / "old.png").write_bytes(b"<old>")
 
     written = await download_artifacts(backend, local_root=local_root)
 
-    # Stale files must be gone
-    assert not (local_root / "report.md").exists()
-    assert not (local_root / "plots").exists()
-    assert written == []
+    assert (local_root / "dataset.csv").read_bytes() == b"raw"
+    assert (local_root / "report.md").read_bytes() == b"# fresh"
+    assert not (local_root / "plots" / "old.png").exists()
+    assert (local_root / "plots" / "new.png").read_bytes() == b"<new>"
+    assert written == [local_root / "plots" / "new.png", local_root / "report.md"]
 
 
 def test_build_image_includes_scikit_learn() -> None:
