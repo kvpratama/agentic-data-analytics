@@ -6,10 +6,11 @@ import pathlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_modal import ModalSandbox
 
-from agent import _bootstrap_mirror, create_analytics_agent, make_graph
+from agent import SchemaOnlySandboxBackend, _bootstrap_mirror, create_analytics_agent, make_graph
 from config import Settings
 
 
@@ -139,6 +140,48 @@ def test_bootstrap_mirror_copies_dataset_once(tmp_path: pathlib.Path) -> None:
     assert (mirror / "dataset.csv").read_bytes() == b"a\n1\n"
 
 
+async def test_make_graph_for_studio_introspection_does_not_create_sandbox(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Studio schema/graph reads can build a graph without provisioning Modal."""
+    graph = MagicMock(name="CompiledStateGraph")
+
+    with (
+        patch("agent._project_root", return_value=tmp_path),
+        patch("agent.modal.Sandbox.create.aio", new=AsyncMock()) as create,
+        patch("agent.seed_sandbox", new=AsyncMock()) as seed,
+        patch("agent.create_analytics_agent", return_value=graph) as create_agent,
+    ):
+        result = await make_graph({"configurable": {"__is_for_execution__": False}})
+
+    assert result is graph
+    create.assert_not_awaited()
+    seed.assert_not_awaited()
+    create_agent.assert_called_once()
+    backend = create_agent.call_args.args[0]
+    assert isinstance(backend, SchemaOnlySandboxBackend)
+    assert create_agent.call_args.kwargs == {"mirror_root": None}
+
+
+async def test_make_graph_execution_requires_csv_path() -> None:
+    """Actual runs fail before provisioning Modal when the dataset config is missing."""
+    with patch("agent.modal.Sandbox.create.aio", new=AsyncMock()) as create:
+        with pytest.raises(
+            ValueError,
+            match="make_graph execution requires configurable.csv_path",
+        ):
+            await make_graph(
+                {
+                    "configurable": {
+                        "__is_for_execution__": True,
+                        "thread_id": "thread-1",
+                    }
+                }
+            )
+
+    create.assert_not_awaited()
+
+
 async def test_make_graph_creates_fresh_sandbox_and_seeds_first_turn(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -161,6 +204,7 @@ async def test_make_graph_creates_fresh_sandbox_and_seeds_first_turn(
         result = await make_graph(
             {
                 "configurable": {
+                    "__is_for_execution__": True,
                     "csv_path": str(csv),
                     "stem": "input",
                     "thread_id": "thread-1",
@@ -206,6 +250,7 @@ async def test_make_graph_reuploads_existing_mirror_on_followup(
         await make_graph(
             {
                 "configurable": {
+                    "__is_for_execution__": True,
                     "csv_path": str(csv),
                     "stem": "input",
                     "thread_id": "thread-1",

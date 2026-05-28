@@ -17,10 +17,12 @@ import pathlib
 import shutil
 import sys
 import uuid
+from typing import cast
 
 import modal
 from deepagents import FilesystemPermission, SubAgent, create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend
+from deepagents.backends.protocol import ExecuteResponse, SandboxBackendProtocol
 from langchain.agents.middleware import (
     AgentMiddleware,
     ModelFallbackMiddleware,
@@ -45,6 +47,56 @@ WORK_RULES = (
     "'/work/profile.json', '/work/changes.json', "
     "'/work/report.md', '/work/plots/'. Skills live under '/skills/'."
 )
+
+
+class SchemaOnlySandboxBackend(FilesystemBackend, SandboxBackendProtocol):
+    """No-op sandbox backend used only for Studio graph introspection.
+
+    LangGraph Studio calls graph factories for schema and graph rendering
+    outside actual run execution. This backend lets Deep Agents build the same
+    graph shape without provisioning Modal. If it is accidentally used to run
+    code, it fails loudly.
+    """
+
+    def __init__(self) -> None:
+        """Initialize a virtual filesystem root for schema-only graph construction."""
+        super().__init__(root_dir=pathlib.Path(__file__).resolve().parent, virtual_mode=True)
+
+    @property
+    def id(self) -> str:
+        """Return a stable identifier for schema-only graph construction."""
+        return "schema-only"
+
+    def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
+        """Reject shell execution because this backend is not a real sandbox.
+
+        Args:
+            command: Command that would have been executed.
+            timeout: Optional execution timeout, accepted for protocol parity.
+
+        Raises:
+            RuntimeError: Always, because schema-only graphs must not execute.
+        """
+        del command, timeout
+        msg = "SchemaOnlySandboxBackend cannot execute commands"
+        raise RuntimeError(msg)
+
+    async def aexecute(
+        self,
+        command: str,
+        *,
+        timeout: int | None = None,
+    ) -> ExecuteResponse:
+        """Async shell execution rejection for protocol parity.
+
+        Args:
+            command: Command that would have been executed.
+            timeout: Optional execution timeout, accepted for protocol parity.
+
+        Returns:
+            Never returns successfully.
+        """
+        return self.execute(command, timeout=timeout)
 
 
 def _project_root() -> pathlib.Path:
@@ -98,12 +150,18 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
         A compiled analytics graph backed by a freshly seeded Modal sandbox.
     """
     configurable = config["configurable"]
+    is_execution = bool(configurable.get("__is_for_execution__", True))
+    if not is_execution:
+        return create_analytics_agent(SchemaOnlySandboxBackend(), mirror_root=None)
+
     if "thread_id" not in configurable:
-        configurable["thread_id"] = "temp_thread_id"
+        msg = "make_graph execution requires configurable.thread_id"
+        raise ValueError(msg)
     thread_id = str(configurable["thread_id"])
 
     if "csv_path" not in configurable:
-        configurable["csv_path"] = "dataset/Titanic-Dataset.csv"
+        msg = "make_graph execution requires configurable.csv_path"
+        raise ValueError(msg)
     csv_path = pathlib.Path(str(configurable["csv_path"])).resolve()
     if "stem" not in configurable:
         configurable["stem"] = csv_path.stem
@@ -118,7 +176,7 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
 
 
 def create_analytics_agent(
-    backend: ModalSandbox,
+    backend: SandboxBackendProtocol,
     *,
     mirror_root: pathlib.Path | None = None,
 ) -> CompiledStateGraph:
@@ -219,7 +277,10 @@ def create_analytics_agent(
         ModelFallbackMiddleware(model_small),
     ]
     if mirror_root is not None:
-        middleware.append(SandboxLifecycleMiddleware(backend=backend, mirror_root=mirror_root))
+        modal_backend = cast("ModalSandbox", backend)
+        middleware.append(
+            SandboxLifecycleMiddleware(backend=modal_backend, mirror_root=mirror_root)
+        )
 
     return create_deep_agent(
         model=model,
