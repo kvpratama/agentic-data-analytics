@@ -219,3 +219,6 @@ __marimo__/
 
 # Agent working directory (generated outputs)
 work/
+
+# LangGraph Studio
+.langgraph_api/

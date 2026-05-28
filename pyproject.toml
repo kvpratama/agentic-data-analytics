@@ -12,6 +12,7 @@ dependencies = [
     "langchain-modal>=0.0.4",
     "langchain-openai>=1.2.1",
     "langgraph>=1.2.0",
+    "langgraph-cli[inmem]>=0.4.26",
     "modal>=1.4.3",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
