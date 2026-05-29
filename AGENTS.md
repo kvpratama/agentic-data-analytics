@@ -22,9 +22,11 @@ All subagents share a single IPython kernel, allowing them to build on each othe
 
 ## Project Structure
 
-- `agent.py`: Orchestrator logic and subagent definitions.
+- `agent.py`: Orchestrator logic.
+- `subagents.py`: Subagent definitions.
+- `cli.py`: CLI entrypoint.
 - `config.py`: Centralized configuration and model initialization.
-- `runtime/`: Modal sandbox runtime helpers (build_image, seed_sandbox, download_artifacts).
+- `runtime/`: Modal sandbox runtime helpers and workspace logic.
 - `skills/`: Domain-specific `SKILL.md` files for profiler, cleaner, and analyst roles.
 - `workspace/`: Ephemeral sandbox directories for each analysis run.
 - `dataset/`: Sample CSV files for testing.

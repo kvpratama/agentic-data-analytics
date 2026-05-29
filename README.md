@@ -99,7 +99,7 @@ The `CompositeBackend` routes ordinary sandbox execution and `/workspace/` file 
 Run the agent with a CSV path and a natural-language objective:
 
 ```bash
-uv run python agent.py dataset/Titanic-Dataset.csv "Investigate factors that affected survival"
+uv run python cli.py dataset/Titanic-Dataset.csv "Investigate factors that affected survival"
 ```
 
 The agent will:
@@ -164,7 +164,7 @@ curl -L -o dataset/iris.zip \
     https://www.kaggle.com/api/v1/datasets/download/uciml/iris
 unzip dataset/iris.zip -d dataset/
 
-uv run python agent.py dataset/Iris.csv \
+uv run python cli.py dataset/Iris.csv \
     "Which two species are the most physically similar?"
 ```
 
@@ -175,7 +175,7 @@ curl -L -o dataset/titanic-dataset.zip \
     https://www.kaggle.com/api/v1/datasets/download/yasserh/titanic-dataset
 unzip dataset/titanic-dataset.zip -d dataset/
 
-uv run python agent.py dataset/Titanic-Dataset.csv \
+uv run python cli.py dataset/Titanic-Dataset.csv \
     "Investigate factors that affected survival"
 ```
 
@@ -186,7 +186,7 @@ curl -L -o dataset/california-housing-prices.zip \
     https://www.kaggle.com/api/v1/datasets/download/camnugent/california-housing-prices
 unzip dataset/california-housing-prices.zip -d dataset/
 
-uv run python agent.py dataset/housing.csv \
+uv run python cli.py dataset/housing.csv \
     "What are the three strongest predictors of high home values?"
 ```
 
@@ -197,7 +197,7 @@ curl -L -o dataset/diamonds.zip \
     https://www.kaggle.com/api/v1/datasets/download/shivam2503/diamonds
 unzip dataset/diamonds.zip -d dataset/
 
-uv run python agent.py dataset/diamonds.csv \
+uv run python cli.py dataset/diamonds.csv \
     "Which feature combinations yield the greatest improvement in predicting diamond prices over single-feature models?"
 ```
 
@@ -205,13 +205,16 @@ uv run python agent.py dataset/diamonds.csv \
 
 ```text
 agentic-data-analytics/
-├── agent.py                          ← LangGraph factory, orchestrator, and CLI entrypoint
+├── agent.py                          ← LangGraph factory and orchestrator
+├── subagents.py                      ← Subagent definitions (profiler, cleaner, analyst)
+├── cli.py                            ← CLI entrypoint
 ├── agent_middleware.py               ← mirrors /workspace artifacts and terminates sandboxes
 ├── config.py                         ← Settings + get_model() (multi-provider + Modal settings)
 ├── config_test.py                    ← unit tests for Settings
 ├── runtime/
 │   ├── modal_runtime.py              ← sandbox build, seed, and download helpers
-│   └── modal_runtime_test.py         ← unit tests for sandbox runtime operations
+│   ├── modal_runtime_test.py         ← unit tests for sandbox runtime operations
+│   └── workspace.py                  ← workspace mirroring and sandbox provisioning logic
 ├── skills/
 │   ├── profiler_skills/profiler/SKILL.md
 │   ├── cleaner_skills/cleaner/SKILL.md
