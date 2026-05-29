@@ -1,5 +1,4 @@
 import asyncio
-import os
 import pathlib
 import sys
 import uuid
@@ -15,7 +14,20 @@ console = Console()
 
 
 async def main() -> None:
-    """CLI entrypoint: parse args, build a graph, and stream one turn."""
+    """CLI entrypoint to parse arguments, build the graph, and stream the agent's turn.
+
+    Parses command-line arguments to run the multi-subagent EDA orchestrator graph,
+    creates the sandbox runtime, and prints the generated response stream to the console.
+
+    Args:
+        None
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: If CLI arguments are invalid or if the input CSV file is not found.
+    """
     if len(sys.argv) < 3:
         console.print("[red]Usage: python -m cli <csv_path> <objective>[/red]")
         sys.exit(1)
@@ -23,11 +35,12 @@ async def main() -> None:
     csv_path = sys.argv[1]
     objective = " ".join(sys.argv[2:])
 
-    if not os.path.exists(csv_path):
-        console.print(f"[red]Error: CSV file '{csv_path}' not found.[/red]")
+    csv_path_obj = pathlib.Path(csv_path)
+    if not csv_path_obj.is_file():
+        console.print(f"[red]Error: CSV path '{csv_path}' is not a file.[/red]")
         sys.exit(1)
 
-    csv_abs = pathlib.Path(csv_path).resolve()
+    csv_abs = csv_path_obj.resolve()
     stem = csv_abs.stem
     thread_id = str(uuid.uuid4())
     local_root = get_mirror_root(stem, thread_id)

@@ -30,6 +30,18 @@ _SAFE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def _validate_path_component(value: str, *, field: str) -> str:
+    """Validate a single path component against the safe-character allowlist.
+
+    Args:
+        value: Candidate path component.
+        field: Field name used in the error message.
+
+    Returns:
+        The validated value unchanged.
+
+    Raises:
+        ValueError: If ``value`` contains characters outside ``[A-Za-z0-9._-]``.
+    """
     if not _SAFE_PATH_COMPONENT.fullmatch(value):
         raise ValueError(f"invalid {field}: {value!r}")
     return value

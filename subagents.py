@@ -1,5 +1,9 @@
 from deepagents import SubAgent
-from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ModelFallbackMiddleware,
+    ModelRetryMiddleware,
+)
 
 from config import Settings, get_model, get_model_small
 
@@ -13,11 +17,24 @@ WORK_RULES = (
 
 
 def get_subagents(settings: Settings) -> list[SubAgent]:
-    """Return the profiler, cleaner, and analyst subagents."""
+    """Build the profiler, cleaner, and analyst subagents.
+
+    Args:
+        settings: Application settings used to configure models and retries.
+
+    Returns:
+        The configured subagent definitions.
+    """
+
     model = get_model(settings)
     model_small = get_model_small(settings)
 
-    def _make_middleware():
+    def _make_middleware() -> list[AgentMiddleware]:
+        """Build the shared middleware stack for each subagent.
+
+        Returns:
+            The retry and fallback middleware chain.
+        """
         return [
             ModelRetryMiddleware(
                 max_retries=settings.retry_max_retries,
