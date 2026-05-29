@@ -30,12 +30,12 @@ async def test_seed_sandbox_uploads_dataset(tmp_path: pathlib.Path) -> None:
     await seed_sandbox(backend, csv_path=str(csv))
 
     # mkdir is issued for /work before the upload
-    mkdir_cmd: str = backend.execute.call_args[0][0]
+    mkdir_cmd: str = backend.aexecute.call_args[0][0]
     assert "/work" in mkdir_cmd
 
     # Single batched upload with the dataset payload preserved
-    backend.upload_files.assert_called_once()
-    uploaded = backend.upload_files.call_args[0][0]
+    backend.aupload_files.assert_called_once()
+    uploaded = backend.aupload_files.call_args[0][0]
     paths = {p for p, _ in uploaded}
     assert paths == {"/work/dataset.csv"}
     dataset_bytes = next(b for p, b in uploaded if p == "/work/dataset.csv")
@@ -50,7 +50,7 @@ async def test_seed_sandbox_does_not_upload_skills(tmp_path: pathlib.Path) -> No
     backend = MagicMock(spec=ModalSandbox)
     await seed_sandbox(backend, csv_path=str(csv))
 
-    uploaded = backend.upload_files.call_args[0][0]
+    uploaded = backend.aupload_files.call_args[0][0]
     paths = {p for p, _ in uploaded}
     assert not any(p.startswith("/skills/") for p in paths)
 
@@ -71,11 +71,11 @@ async def test_seed_sandbox_uploads_existing_mirror_artifacts(tmp_path: pathlib.
 
     await seed_sandbox(backend, mirror_root=mirror)
 
-    mkdir_cmd: str = backend.execute.call_args[0][0]
+    mkdir_cmd: str = backend.aexecute.call_args[0][0]
     assert "/work" in mkdir_cmd
     assert "/work/plots" in mkdir_cmd
 
-    uploaded = backend.upload_files.call_args[0][0]
+    uploaded = backend.aupload_files.call_args[0][0]
     assert {p for p, _ in uploaded} == {
         "/work/dataset.csv",
         "/work/profile.json",
@@ -102,10 +102,10 @@ async def test_download_artifacts_writes_present_files_to_local_mirror(
     backend = MagicMock(spec=ModalSandbox)
 
     # Sandbox lists three plot files, one with a space
-    backend.execute.return_value = MagicMock(output="dist_age.png\ncorrelation.png\nmy plot.png\n")
+    backend.aexecute.return_value = MagicMock(output="dist_age.png\ncorrelation.png\nmy plot.png\n")
 
     # Sandbox returns report.md + both plots; changes.json/profile.json are missing
-    def fake_download(paths: list[str]) -> list[MagicMock]:
+    async def fake_download(paths: list[str]) -> list[MagicMock]:
         bundle = {
             "/work/report.md": b"# report",
             "/work/plots/dist_age.png": b"<png-1>",
@@ -116,7 +116,7 @@ async def test_download_artifacts_writes_present_files_to_local_mirror(
             _make_dl_result(p, bundle.get(p), None if p in bundle else "not found") for p in paths
         ]
 
-    backend.download_files.side_effect = fake_download
+    backend.adownload_files.side_effect = fake_download
 
     local_root = tmp_path / "out"
     written = await download_artifacts(backend, local_root=local_root)
@@ -140,8 +140,8 @@ async def test_download_artifacts_writes_present_files_to_local_mirror(
 async def test_download_artifacts_handles_empty_plots_dir(tmp_path: pathlib.Path) -> None:
     """If /work/plots is empty or missing, we still download top-level artifacts."""
     backend = MagicMock(spec=ModalSandbox)
-    backend.execute.return_value = MagicMock(output="")
-    backend.download_files.return_value = [
+    backend.aexecute.return_value = MagicMock(output="")
+    backend.adownload_files.return_value = [
         _make_dl_result("/work/report.md", b"# r"),
         _make_dl_result("/work/changes.json", None, "missing"),
         _make_dl_result("/work/profile.json", None, "missing"),
@@ -161,8 +161,8 @@ async def test_download_artifacts_preserves_raw_dataset_and_refreshes_plots(
 ) -> None:
     """Downloads overwrite artifacts without deleting the raw dataset; plots are refreshed."""
     backend = MagicMock(spec=ModalSandbox)
-    backend.execute.return_value = MagicMock(output="new.png\n")
-    backend.download_files.return_value = [
+    backend.aexecute.return_value = MagicMock(output="new.png\n")
+    backend.adownload_files.return_value = [
         _make_dl_result("/work/report.md", b"# fresh"),
         _make_dl_result("/work/dataset.clean.csv", None, "missing"),
         _make_dl_result("/work/changes.json", None, "missing"),

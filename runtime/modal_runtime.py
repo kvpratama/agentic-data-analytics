@@ -17,6 +17,7 @@ Note: Skills are served to the orchestrator from the host filesystem via a
 
 from __future__ import annotations
 
+import asyncio
 import pathlib
 import shutil
 
@@ -66,31 +67,34 @@ async def seed_sandbox(
 
     # Pre-create target directories in sandbox filesystem.
     # modal.Sandbox.open does not automatically create parent directories, so they must exist first.
-    backend.execute("mkdir -p /work /work/plots")
+    await backend.aexecute("mkdir -p /work /work/plots")
 
-    uploads: list[tuple[str, bytes]] = []
-    if mirror_root is not None:
-        top_level = [
-            ("dataset.csv", "/work/dataset.csv"),
-            ("profile.json", "/work/profile.json"),
-            ("dataset.clean.csv", "/work/dataset.clean.csv"),
-            ("changes.json", "/work/changes.json"),
-            ("report.md", "/work/report.md"),
-        ]
-        for local_name, remote_path in top_level:
-            source = mirror_root / local_name
-            if source.exists():
-                uploads.append((remote_path, source.read_bytes()))
+    def _collect_uploads() -> list[tuple[str, bytes]]:
+        uploads: list[tuple[str, bytes]] = []
+        if mirror_root is not None:
+            top_level = [
+                ("dataset.csv", "/work/dataset.csv"),
+                ("profile.json", "/work/profile.json"),
+                ("dataset.clean.csv", "/work/dataset.clean.csv"),
+                ("changes.json", "/work/changes.json"),
+                ("report.md", "/work/report.md"),
+            ]
+            for local_name, remote_path in top_level:
+                source = mirror_root / local_name
+                if source.exists():
+                    uploads.append((remote_path, source.read_bytes()))
 
-        plots_dir = mirror_root / "plots"
-        if plots_dir.exists():
-            for plot in sorted(plots_dir.glob("*.png")):
-                uploads.append((f"/work/plots/{plot.name}", plot.read_bytes()))
-    else:
-        uploads.append(("/work/dataset.csv", pathlib.Path(str(csv_path)).read_bytes()))
+            plots_dir = mirror_root / "plots"
+            if plots_dir.exists():
+                for plot in sorted(plots_dir.glob("*.png")):
+                    uploads.append((f"/work/plots/{plot.name}", plot.read_bytes()))
+        else:
+            uploads.append(("/work/dataset.csv", pathlib.Path(str(csv_path)).read_bytes()))
+        return uploads
 
+    uploads = await asyncio.to_thread(_collect_uploads)
     if uploads:
-        backend.upload_files(uploads)
+        await backend.aupload_files(uploads)
 
 
 async def download_artifacts(
@@ -125,26 +129,32 @@ async def download_artifacts(
     ]
 
     # Plot filenames are model-chosen; discover them.
-    ls = backend.execute("ls -1 /work/plots 2>/dev/null || true")
+    ls = await backend.aexecute("ls -1 /work/plots 2>/dev/null || true")
     for line in ls.output.splitlines():
         name = line.strip()
         if name:
             artifacts.append(f"/work/plots/{name}")
 
-    local_root.mkdir(parents=True, exist_ok=True)
-    plots_root = local_root / "plots"
-    if plots_root.exists():
-        shutil.rmtree(plots_root)
+    def _prepare_local_root() -> None:
+        local_root.mkdir(parents=True, exist_ok=True)
+        plots_root = local_root / "plots"
+        if plots_root.exists():
+            shutil.rmtree(plots_root)
 
-    written: list[pathlib.Path] = []
-    results = backend.download_files(artifacts)
-    for result in results:
-        if result.content is None:
-            continue
-        rel = pathlib.Path(result.path).relative_to("/work")
-        out_path = local_root / rel
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_bytes(result.content)
-        written.append(out_path)
+    await asyncio.to_thread(_prepare_local_root)
 
-    return sorted(written)
+    results = await backend.adownload_files(artifacts)
+
+    def _write_results() -> list[pathlib.Path]:
+        written: list[pathlib.Path] = []
+        for result in results:
+            if result.content is None:
+                continue
+            rel = pathlib.Path(result.path).relative_to("/work")
+            out_path = local_root / rel
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(result.content)
+            written.append(out_path)
+        return sorted(written)
+
+    return await asyncio.to_thread(_write_results)

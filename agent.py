@@ -16,6 +16,7 @@ import os
 import pathlib
 import shutil
 import sys
+import tempfile
 import uuid
 from typing import cast
 
@@ -39,6 +40,11 @@ from config import get_model, get_model_small, get_settings
 from runtime.modal_runtime import build_image, seed_sandbox
 
 console = Console()
+
+# Prime tempfile.tempdir at import time so later async code (e.g. Modal's
+# Resolver creating a TemporaryFile) does not hit os.getcwd() on the event
+# loop, which blockbuster flags as a blocking call under `langgraph dev`.
+tempfile.gettempdir()
 
 WORK_RULES = (
     "All dataset files live under '/work/'. Use absolute paths: "
@@ -162,13 +168,15 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
     if "csv_path" not in configurable:
         msg = "make_graph execution requires configurable.csv_path"
         raise ValueError(msg)
-    csv_path = pathlib.Path(str(configurable["csv_path"])).resolve()
+    csv_path = await asyncio.to_thread(
+        lambda: pathlib.Path(str(configurable["csv_path"])).resolve()
+    )
     if "stem" not in configurable:
         configurable["stem"] = csv_path.stem
     stem = str(configurable["stem"])
 
     mirror_root = _project_root() / "work" / f"{stem}_{thread_id}"
-    _bootstrap_mirror(mirror_root, csv_path)
+    await asyncio.to_thread(_bootstrap_mirror, mirror_root, csv_path)
 
     backend = await _create_sandbox(thread_id)
     await seed_sandbox(backend, mirror_root=mirror_root)
