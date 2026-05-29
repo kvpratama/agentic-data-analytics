@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import os
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
@@ -75,6 +76,15 @@ def _project_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parent
 
 
+_SAFE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _validate_path_component(value: str, *, field: str) -> str:
+    if not _SAFE_PATH_COMPONENT.fullmatch(value):
+        raise ValueError(f"invalid {field}: {value!r}")
+    return value
+
+
 def _mirror_root(stem: str, thread_id: str) -> pathlib.Path:
     """Return the host-side per-thread workspace directory.
 
@@ -88,7 +98,9 @@ def _mirror_root(stem: str, thread_id: str) -> pathlib.Path:
     Returns:
         Absolute path under ``<project>/workspace/<stem>_<thread_id>``.
     """
-    return _project_root() / "workspace" / f"{stem}_{thread_id}"
+    safe_stem = _validate_path_component(stem, field="stem")
+    safe_thread_id = _validate_path_component(thread_id, field="thread_id")
+    return _project_root() / "workspace" / f"{safe_stem}_{safe_thread_id}"
 
 
 def _bootstrap_mirror(mirror_root: pathlib.Path, csv_path: pathlib.Path) -> None:
