@@ -317,6 +317,7 @@ async def main() -> None:
             "csv_path": str(csv_abs),
             "stem": stem,
             "thread_id": thread_id,
+            "__is_for_execution__": True,
         }
     }
     agent = await make_graph(config)

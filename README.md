@@ -7,8 +7,8 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 - **`SubAgentMiddleware`** — three named subagents with distinct system prompts and skills, communicating through the orchestrator via the `task` tool.
 - **Modal Sandbox Isolation** — runs in a secure, isolated microVM using `ModalSandbox` (from `langchain-modal`). The agent cannot escape the container, keeping your host machine protected.
 - **Single `execute` tool surface** — each subagent has the full power of pandas / scipy / matplotlib via one `execute` tool to run commands inside the sandbox container.
-- **Skills (progressive disclosure)** — methodology lives in `SKILL.md` files under `skills/`, mounted into the sandbox filesystem and loaded on demand.
-- **File-based state persistence** — state persists across subagents and execution calls through explicit files (`/work/dataset.csv`, `/work/profile.json`, etc.) in the sandbox rather than in-memory kernel variables.
+- **Skills (progressive disclosure)** — methodology lives in `SKILL.md` files under `skills/`, served through a host filesystem route and loaded on demand.
+- **File-based state handoff** — subagents coordinate within a turn through explicit sandbox files (`/work/dataset.csv`, `/work/profile.json`, etc.) rather than in-memory kernel variables.
 - **Thread-scoped follow-ups** — LangGraph Studio/API threads keep chat history, while host-side mirrors under `work/<dataset-stem>_<thread_id>/` preserve `/work/` artifacts across turns.
 - **Multi-provider model configuration** — swap between Anthropic, OpenAI, or Google with a single `.env` change.
 
@@ -29,11 +29,25 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
            ╰────────────────┼────────────────╯
                             ▼
               ╭──────────────────────────╮
-              │       ModalSandbox       │  ← secure isolated microVM
-              │  /work/dataset.csv       │    state survives via files
-              │  /skills/...             │
-              ╰──────────────────────────╯
+              │     CompositeBackend     │
+              │ default → ModalSandbox   │
+              │ /skills → Filesystem     │
+              ╰──────┬──────────────┬────╯
+                     │ default      │ /skills
+                     ▼              ▼
+        ╭────────────────────╮  ╭────────────────────╮
+        │    ModalSandbox    │  │ FilesystemBackend  │
+        │ /work/dataset.csv  │  │ local repo skills/ │
+        │ /work/profile.json │  │ read-only route    │
+        ╰─────────┬──────────╯  ╰────────────────────╯
+                  │ seeded/downloaded each turn
+                  ▼
+        ╭──────────────────────────╮
+        │ work/<stem>_<thread_id>/ │  ← thread-scoped persistence
+        ╰──────────────────────────╯
 ```
+
+The `CompositeBackend` routes ordinary sandbox execution and `/work/` file I/O to `ModalSandbox`, while `/skills/` reads are served from the local repository through `FilesystemBackend`. The `work/<stem>_<thread_id>/` mirror is handled by the sandbox seeding and lifecycle middleware, not by the `/skills/` backend route. A write-deny `FilesystemPermission` protects `/skills/**`, so agents can load skills but cannot modify them.
 
 1. **Profiler** — loads the [profiling skill](skills/profiler_skills/profiler/SKILL.md), inspects `/work/dataset.csv` in the sandbox, and writes `/work/profile.json` with raw stats and a `diagnosis` list.
 2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaner/SKILL.md), reads `/work/profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by writing the cleaned output to `/work/dataset.clean.csv`, leaving the original `/work/dataset.csv` unchanged.
@@ -90,7 +104,7 @@ uv run python agent.py dataset/Titanic-Dataset.csv "Investigate factors that aff
 
 The agent will:
 
-1. Boot an isolated `ModalSandbox` loaded with a custom Python image containing `pandas`, `scipy`, `matplotlib`, and `seaborn`.
+1. Boot an isolated `ModalSandbox` loaded with a custom Python image containing `pandas`, `scipy`, `scikit-learn`, `matplotlib`, and `seaborn`.
 2. Seed the sandbox with the input dataset (copied to `/work/dataset.csv`) and serve the subagents' skills from the host filesystem.
 3. Profile the dataset and identify quality issues (`/work/profile.json`).
 4. Clean the data and write it to `/work/dataset.clean.csv` inside the sandbox, preserving the original `/work/dataset.csv`.
@@ -129,20 +143,15 @@ Run Studio from the project root:
 uv run langgraph dev
 ```
 
-Create a thread with this configurable payload:
+Before submitting a run, open [**Manage Assistants**](https://docs.langchain.com/langsmith/use-studio#manage-assistants) in LangGraph Studio and set the active assistant's configurable payload:
 
 ```json
 {
-  "csv_path": "/absolute/path/to/dataset/Titanic-Dataset.csv",
-  "stem": "Titanic-Dataset"
+  "csv_path": "dataset/Titanic-Dataset.csv"
 }
 ```
 
-Studio supplies `thread_id`. Each turn creates a fresh Modal sandbox, seeds it
-from `work/<stem>_<thread_id>/`, runs the agent, mirrors artifacts back to that
-directory, and terminates the sandbox. To analyze a different dataset, start a
-new thread. Old thread mirrors can be removed manually from `work/` when they
-are no longer needed.
+Studio supplies the run/thread metadata. Each turn creates a fresh Modal sandbox, seeds it from `work/<stem>_<thread_id>/`, runs the agent, mirrors artifacts back to that directory, and terminates the sandbox. To analyze a different dataset, update the active assistant's `csv_path` and start a new thread. Old thread mirrors can be removed manually from `work/` when they are no longer needed.
 
 ## Try it on more datasets
 
