@@ -21,7 +21,7 @@ def test_build_image_pins_data_science_stack() -> None:
 
 
 async def test_seed_sandbox_uploads_dataset(tmp_path: pathlib.Path) -> None:
-    """seed_sandbox uploads dataset.csv to /work/ and creates the /work dir."""
+    """seed_sandbox uploads dataset.csv to /workspace/ and creates the /workspace dir."""
     csv = tmp_path / "input.csv"
     csv.write_bytes(b"a,b\n1,2\n")
 
@@ -29,16 +29,16 @@ async def test_seed_sandbox_uploads_dataset(tmp_path: pathlib.Path) -> None:
 
     await seed_sandbox(backend, csv_path=str(csv))
 
-    # mkdir is issued for /work before the upload
+    # mkdir is issued for /workspace before the upload
     mkdir_cmd: str = backend.aexecute.call_args[0][0]
-    assert "/work" in mkdir_cmd
+    assert "/workspace" in mkdir_cmd
 
     # Single batched upload with the dataset payload preserved
     backend.aupload_files.assert_called_once()
     uploaded = backend.aupload_files.call_args[0][0]
     paths = {p for p, _ in uploaded}
-    assert paths == {"/work/dataset.csv"}
-    dataset_bytes = next(b for p, b in uploaded if p == "/work/dataset.csv")
+    assert paths == {"/workspace/dataset.csv"}
+    dataset_bytes = next(b for p, b in uploaded if p == "/workspace/dataset.csv")
     assert dataset_bytes == b"a,b\n1,2\n"
 
 
@@ -72,17 +72,17 @@ async def test_seed_sandbox_uploads_existing_mirror_artifacts(tmp_path: pathlib.
     await seed_sandbox(backend, mirror_root=mirror)
 
     mkdir_cmd: str = backend.aexecute.call_args[0][0]
-    assert "/work" in mkdir_cmd
-    assert "/work/plots" in mkdir_cmd
+    assert "/workspace" in mkdir_cmd
+    assert "/workspace/plots" in mkdir_cmd
 
     uploaded = backend.aupload_files.call_args[0][0]
     assert {p for p, _ in uploaded} == {
-        "/work/dataset.csv",
-        "/work/profile.json",
-        "/work/dataset.clean.csv",
-        "/work/changes.json",
-        "/work/report.md",
-        "/work/plots/chart.png",
+        "/workspace/dataset.csv",
+        "/workspace/profile.json",
+        "/workspace/dataset.clean.csv",
+        "/workspace/changes.json",
+        "/workspace/report.md",
+        "/workspace/plots/chart.png",
     }
 
 
@@ -107,10 +107,10 @@ async def test_download_artifacts_writes_present_files_to_local_mirror(
     # Sandbox returns report.md + both plots; changes.json/profile.json are missing
     async def fake_download(paths: list[str]) -> list[MagicMock]:
         bundle = {
-            "/work/report.md": b"# report",
-            "/work/plots/dist_age.png": b"<png-1>",
-            "/work/plots/correlation.png": b"<png-2>",
-            "/work/plots/my plot.png": b"<png-3>",
+            "/workspace/report.md": b"# report",
+            "/workspace/plots/dist_age.png": b"<png-1>",
+            "/workspace/plots/correlation.png": b"<png-2>",
+            "/workspace/plots/my plot.png": b"<png-3>",
         }
         return [
             _make_dl_result(p, bundle.get(p), None if p in bundle else "not found") for p in paths
@@ -138,13 +138,13 @@ async def test_download_artifacts_writes_present_files_to_local_mirror(
 
 
 async def test_download_artifacts_handles_empty_plots_dir(tmp_path: pathlib.Path) -> None:
-    """If /work/plots is empty or missing, we still download top-level artifacts."""
+    """If /workspace/plots is empty or missing, we still download top-level artifacts."""
     backend = MagicMock(spec=ModalSandbox)
     backend.aexecute.return_value = MagicMock(output="")
     backend.adownload_files.return_value = [
-        _make_dl_result("/work/report.md", b"# r"),
-        _make_dl_result("/work/changes.json", None, "missing"),
-        _make_dl_result("/work/profile.json", None, "missing"),
+        _make_dl_result("/workspace/report.md", b"# r"),
+        _make_dl_result("/workspace/changes.json", None, "missing"),
+        _make_dl_result("/workspace/profile.json", None, "missing"),
     ]
 
     local_root = tmp_path / "out"
@@ -163,11 +163,11 @@ async def test_download_artifacts_preserves_raw_dataset_and_refreshes_plots(
     backend = MagicMock(spec=ModalSandbox)
     backend.aexecute.return_value = MagicMock(output="new.png\n")
     backend.adownload_files.return_value = [
-        _make_dl_result("/work/report.md", b"# fresh"),
-        _make_dl_result("/work/dataset.clean.csv", None, "missing"),
-        _make_dl_result("/work/changes.json", None, "missing"),
-        _make_dl_result("/work/profile.json", None, "missing"),
-        _make_dl_result("/work/plots/new.png", b"<new>"),
+        _make_dl_result("/workspace/report.md", b"# fresh"),
+        _make_dl_result("/workspace/dataset.clean.csv", None, "missing"),
+        _make_dl_result("/workspace/changes.json", None, "missing"),
+        _make_dl_result("/workspace/profile.json", None, "missing"),
+        _make_dl_result("/workspace/plots/new.png", b"<new>"),
     ]
 
     local_root = tmp_path / "out"

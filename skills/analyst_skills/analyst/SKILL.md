@@ -7,12 +7,12 @@ description: Analyse a dataset and produce a Markdown report with plots. Use whe
 
 ## Overview
 
-Read `/work/dataset.clean.csv` (or `/work/dataset.csv` if the cleaner did not run) and
-`/work/changes.json`, produce a Markdown report (`/work/report.md`) with supporting PNG
-plots in `/work/plots/`. The report follows a fixed skeleton with conditional sections —
+Read `/workspace/dataset.clean.csv` (or `/workspace/dataset.csv` if the cleaner did not run) and
+`/workspace/changes.json`, produce a Markdown report (`/workspace/report.md`) with supporting PNG
+plots in `/workspace/plots/`. The report follows a fixed skeleton with conditional sections —
 include a conditional section only if the data genuinely warrants it.
 
-The raw `/work/dataset.csv` is always available — consult it when you need to compare
+The raw `/workspace/dataset.csv` is always available — consult it when you need to compare
 pre/post-cleaning values (e.g. to verify outlier handling or show the impact of imputation).
 
 ## When to Use
@@ -24,14 +24,14 @@ When asked to analyse or summarise a dataset after cleaning has already run.
 Use the `execute` shell tool for all code. Each `execute` call is a fresh Python
 process — **state persists via files, not in-memory variables.** Re-read the cleaned
 dataset at the top of each script. Very large outputs are evicted to the filesystem,
-so print only what you need. Create `/work/plots/` (e.g. `os.makedirs('/work/plots',
+so print only what you need. Create `/workspace/plots/` (e.g. `os.makedirs('/workspace/plots',
 exist_ok=True)`) before saving any figures.
 
 Use this helper at the top of every script to pick the right file:
 
 ```python
 import os
-DATA = '/work/dataset.clean.csv' if os.path.exists('/work/dataset.clean.csv') else '/work/dataset.csv'
+DATA = '/workspace/dataset.clean.csv' if os.path.exists('/workspace/dataset.clean.csv') else '/workspace/dataset.csv'
 df = pd.read_csv(DATA)
 ```
 
@@ -40,8 +40,8 @@ df = pd.read_csv(DATA)
 For multi-line Python, write a script and run it:
 
 ```text
-write_file('/work/_cell.py', '<your code>')
-execute('python /work/_cell.py')
+write_file('/workspace/_cell.py', '<your code>')
+execute('python /workspace/_cell.py')
 ```
 
 For one-liners, `execute("python -c '...'")` is fine. Avoid heredocs — they are brittle
@@ -50,10 +50,10 @@ through the LLM's quoting.
 
 ## Inputs
 
-- `/work/dataset.clean.csv` — the cleaned dataset (preferred input).
-- `/work/dataset.csv` — the raw, untouched dataset. Use as a fallback when
+- `/workspace/dataset.clean.csv` — the cleaned dataset (preferred input).
+- `/workspace/dataset.csv` — the raw, untouched dataset. Use as a fallback when
   `dataset.clean.csv` doesn't exist, or for pre/post comparisons.
-- `/work/changes.json` — the Cleaner's decision log; read this to understand what was
+- `/workspace/changes.json` — the Cleaner's decision log; read this to understand what was
   fixed, skipped, or winsorised before drawing conclusions about the data.
   **May not exist** if the orchestrator skipped the cleaning step. Treat its absence as
   "dataset is raw — no cleaning performed" and proceed; do not error out.
@@ -61,14 +61,14 @@ through the LLM's quoting.
 ## Workflow
 
 1. **Call 1 — Load**: in a script, read the cleaned dataset (see helper in Execution
-   Context) and `/work/changes.json` if it exists (use `os.path.exists` — set
+   Context) and `/workspace/changes.json` if it exists (use `os.path.exists` — set
    `changes = []` if missing). Print shape and a quick dtype summary to confirm what
    you're working with.
 2. **Call 2 — Compute**: re-read the cleaned dataset, run the statistics and correlation
    checks needed to decide which conditional sections are warranted.
-3. **Call 3+ — Plot**: generate and save each plot as a PNG under `/work/plots/`. One
+3. **Call 3+ — Plot**: generate and save each plot as a PNG under `/workspace/plots/`. One
    `execute` call per plot to keep output manageable.
-4. **Final call — Write**: assemble and write `/work/report.md`.
+4. **Final call — Write**: assemble and write `/workspace/report.md`.
 
 ---
 
@@ -126,14 +126,14 @@ small group of users over 70" is useful. "Age has skewness 1.8" is not.
 #### Correlations
 **Include if**: there are ≥2 numeric columns and at least one pair has |r| > 0.5.
 
-Save a heatmap as `/work/plots/correlation_heatmap.png`. Call out the strongest relationships
+Save a heatmap as `/workspace/plots/correlation_heatmap.png`. Call out the strongest relationships
 by name and suggest what they might imply.
 
 #### Categorical Breakdown
 **Include if**: there are categorical columns with 2–20 unique values that show meaningful
 variation (i.e. not roughly uniform, not near-constant).
 
-Save a bar chart per interesting column as `/work/plots/cat_<colname>.png`.
+Save a bar chart per interesting column as `/workspace/plots/cat_<colname>.png`.
 
 #### Predictive Signals
 **Include if**: the user's objective implies a target column (or one is obvious from
@@ -157,7 +157,7 @@ accuracy, or ≥ 10% reduction in RMSE).
 5. Report: baseline metric (majority-class accuracy / target-mean RMSE), model metric
    on the held-out test set, and the top-5 features by `|coef_|` (linear models) or
    `feature_importances_` (tree models).
-6. Save the top-features bar chart as `/work/plots/feature_importance.png` and
+6. Save the top-features bar chart as `/workspace/plots/feature_importance.png` and
    reference it in the section.
 
 **Cap**: one paragraph of prose + one plot. If you find yourself writing more, you
@@ -175,7 +175,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
-DATA = '/work/dataset.clean.csv' if os.path.exists('/work/dataset.clean.csv') else '/work/dataset.csv'
+DATA = '/workspace/dataset.clean.csv' if os.path.exists('/workspace/dataset.clean.csv') else '/workspace/dataset.csv'
 df = pd.read_csv(DATA).dropna(subset=['Survived'])
 y = df['Survived']
 features = df.drop(columns=['Survived'])
@@ -207,13 +207,13 @@ else:
             importances = pd.Series(abs(coef).mean(axis=0) if coef.ndim > 1 else abs(coef).ravel(), index=X.columns)
         top = importances.sort_values(ascending=True).tail(5)
 
-        os.makedirs('/work/plots', exist_ok=True)
+        os.makedirs('/workspace/plots', exist_ok=True)
         fig, ax = plt.subplots(figsize=(8, 6))
         top.plot.barh(ax=ax)
         ax.set_xlabel('Importance')
         ax.set_title('Top 5 Features')
         plt.tight_layout()
-        plt.savefig('/work/plots/feature_importance.png', dpi=150, bbox_inches='tight')
+        plt.savefig('/workspace/plots/feature_importance.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
 ```
 
@@ -227,22 +227,22 @@ left them, so the reader knows to treat those columns carefully.
 ## Plotting Guidelines
 
 - Use `matplotlib` with `Agg` backend (no display): set `matplotlib.use('Agg')` before importing `pyplot`.
-- Create `/work/plots/` if it doesn't exist: `import os; os.makedirs('/work/plots', exist_ok=True)`.
+- Create `/workspace/plots/` if it doesn't exist: `import os; os.makedirs('/workspace/plots', exist_ok=True)`.
 - Keep plots clean: label axes, add a title, call `plt.tight_layout()` before saving.
-- Save at 150 dpi: `plt.savefig('/work/plots/filename.png', dpi=150, bbox_inches='tight')`.
+- Save at 150 dpi: `plt.savefig('/workspace/plots/filename.png', dpi=150, bbox_inches='tight')`.
 - Call `plt.close()` after each save to free memory.
 
 ---
 
 ## Output Contract
 
-**`/work/report.md`** — Markdown file with:
+**`/workspace/report.md`** — Markdown file with:
 - Required sections: Summary, Key Findings, Data Quality Notes
 - Conditional sections as warranted
 - PNG references using relative paths: `![title](plots/filename.png)` (relative so the
-  links still work after artifacts are mirrored back to `work/<stem>/` on the host)
+  links still work after artifacts are mirrored back to `workspace/<stem>/` on the host)
 
-**`/work/plots/`** — directory containing all referenced PNGs.
+**`/workspace/plots/`** — directory containing all referenced PNGs.
 
 Print to stdout:
 ```

@@ -142,7 +142,7 @@ def test_bootstrap_mirror_copies_dataset_once(tmp_path: pathlib.Path) -> None:
     """Mirror bootstrap creates dataset.csv and does not overwrite it later."""
     source = tmp_path / "source.csv"
     source.write_bytes(b"a\n1\n")
-    mirror = tmp_path / "work" / "source_thread"
+    mirror = tmp_path / "workspace" / "source_thread"
 
     _bootstrap_mirror(mirror, source)
     assert (mirror / "dataset.csv").read_bytes() == b"a\n1\n"
@@ -229,7 +229,7 @@ async def test_make_graph_creates_fresh_sandbox_and_seeds_first_turn(
             }
         )
 
-    mirror = tmp_path / "work" / "input_thread-1"
+    mirror = tmp_path / "workspace" / "input_thread-1"
     assert result is graph
     assert (mirror / "dataset.csv").read_bytes() == b"a,b\n1,2\n"
     create.assert_awaited_once()
@@ -286,7 +286,7 @@ async def test_make_graph_reuploads_existing_mirror_on_followup(
     """make_graph keeps thread workspace continuity by seeding accumulated files."""
     csv = tmp_path / "input.csv"
     csv.write_bytes(b"raw")
-    mirror = tmp_path / "work" / "input_thread-1"
+    mirror = tmp_path / "workspace" / "input_thread-1"
     plots = mirror / "plots"
     plots.mkdir(parents=True)
     (mirror / "dataset.csv").write_bytes(b"raw")

@@ -26,7 +26,7 @@ All subagents share a single IPython kernel, allowing them to build on each othe
 - `config.py`: Centralized configuration and model initialization.
 - `runtime/`: Modal sandbox runtime helpers (build_image, seed_sandbox, download_artifacts).
 - `skills/`: Domain-specific `SKILL.md` files for profiler, cleaner, and analyst roles.
-- `work/`: Ephemeral sandbox directories for each analysis run.
+- `workspace/`: Ephemeral sandbox directories for each analysis run.
 - `dataset/`: Sample CSV files for testing.
 - `pyproject.toml`: Dependency and tool configuration (Ruff, Pytest).
 

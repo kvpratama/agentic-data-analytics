@@ -5,7 +5,7 @@ Three responsibilities:
 * :func:`build_image` declares the Modal Image with the data-science stack
   baked in.
 * :func:`seed_sandbox` uploads the dataset into the sandbox.
-* :func:`download_artifacts` mirrors the sandbox's ``/work/`` outputs back
+* :func:`download_artifacts` mirrors the sandbox's ``/workspace/`` outputs back
   onto the host so users can open ``report.md`` and the plots locally.
 
 All Modal-facing calls go through the ``ModalSandbox`` backend instance the
@@ -49,14 +49,14 @@ async def seed_sandbox(
     csv_path: str | None = None,
     mirror_root: pathlib.Path | None = None,
 ) -> None:
-    """Upload host-side mirror files into the sandbox under ``/work/``.
+    """Upload host-side mirror files into the sandbox under ``/workspace/``.
 
     Args:
         backend: A live ``ModalSandbox`` backend to upload into.
         csv_path: Host path to the input CSV. Kept for the one-shot CLI-compatible
-            call path; uploaded as ``/work/dataset.csv``.
+            call path; uploaded as ``/workspace/dataset.csv``.
         mirror_root: Host mirror directory for a thread. Any supported files
-            already present in it are uploaded to their matching ``/work/`` paths.
+            already present in it are uploaded to their matching ``/workspace/`` paths.
 
     Raises:
         ValueError: If neither ``csv_path`` nor ``mirror_root`` is provided.
@@ -67,7 +67,7 @@ async def seed_sandbox(
 
     # Pre-create target directories in sandbox filesystem.
     # modal.Sandbox.open does not automatically create parent directories, so they must exist first.
-    await backend.aexecute("mkdir -p /work /work/plots")
+    await backend.aexecute("mkdir -p /workspace /workspace/plots")
 
     def _collect_uploads() -> list[tuple[str, bytes]]:
         """Collect upload payloads as ``(path, bytes)`` pairs.
@@ -79,11 +79,11 @@ async def seed_sandbox(
         uploads: list[tuple[str, bytes]] = []
         if mirror_root is not None:
             top_level = [
-                ("dataset.csv", "/work/dataset.csv"),
-                ("profile.json", "/work/profile.json"),
-                ("dataset.clean.csv", "/work/dataset.clean.csv"),
-                ("changes.json", "/work/changes.json"),
-                ("report.md", "/work/report.md"),
+                ("dataset.csv", "/workspace/dataset.csv"),
+                ("profile.json", "/workspace/profile.json"),
+                ("dataset.clean.csv", "/workspace/dataset.clean.csv"),
+                ("changes.json", "/workspace/changes.json"),
+                ("report.md", "/workspace/report.md"),
             ]
             for local_name, remote_path in top_level:
                 source = mirror_root / local_name
@@ -93,9 +93,9 @@ async def seed_sandbox(
             plots_dir = mirror_root / "plots"
             if plots_dir.exists():
                 for plot in sorted(plots_dir.glob("*.png")):
-                    uploads.append((f"/work/plots/{plot.name}", plot.read_bytes()))
+                    uploads.append((f"/workspace/plots/{plot.name}", plot.read_bytes()))
         else:
-            uploads.append(("/work/dataset.csv", pathlib.Path(str(csv_path)).read_bytes()))
+            uploads.append(("/workspace/dataset.csv", pathlib.Path(str(csv_path)).read_bytes()))
         return uploads
 
     uploads = await asyncio.to_thread(_collect_uploads)
@@ -108,10 +108,10 @@ async def download_artifacts(
     *,
     local_root: pathlib.Path,
 ) -> list[pathlib.Path]:
-    """Mirror the sandbox's ``/work/`` output artifacts back onto the host.
+    """Mirror the sandbox's ``/workspace/`` output artifacts back onto the host.
 
     Downloads ``report.md``, ``dataset.clean.csv``, ``changes.json``,
-    ``profile.json``, and every PNG under ``/work/plots/``. Files that don't
+    ``profile.json``, and every PNG under ``/workspace/plots/``. Files that don't
     exist in the sandbox are skipped silently (e.g. ``changes.json`` and
     ``dataset.clean.csv`` are absent when cleaning was skipped).
 
@@ -128,18 +128,18 @@ async def download_artifacts(
         Sorted list of host paths that were actually written.
     """
     artifacts = [
-        "/work/report.md",
-        "/work/dataset.clean.csv",
-        "/work/changes.json",
-        "/work/profile.json",
+        "/workspace/report.md",
+        "/workspace/dataset.clean.csv",
+        "/workspace/changes.json",
+        "/workspace/profile.json",
     ]
 
     # Plot filenames are model-chosen; discover them.
-    ls = await backend.aexecute("ls -1 /work/plots 2>/dev/null || true")
+    ls = await backend.aexecute("ls -1 /workspace/plots 2>/dev/null || true")
     for line in ls.output.splitlines():
         name = line.strip()
         if name:
-            artifacts.append(f"/work/plots/{name}")
+            artifacts.append(f"/workspace/plots/{name}")
 
     def _prepare_local_root() -> None:
         """Create ``local_root`` and refresh the ``plots`` directory.
@@ -167,7 +167,7 @@ async def download_artifacts(
         for result in results:
             if result.content is None:
                 continue
-            rel = pathlib.Path(result.path).relative_to("/work")
+            rel = pathlib.Path(result.path).relative_to("/workspace")
             out_path = local_root / rel
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_bytes(result.content)

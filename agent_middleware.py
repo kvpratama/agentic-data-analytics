@@ -12,7 +12,7 @@ from runtime.modal_runtime import download_artifacts
 
 
 class SandboxLifecycleMiddleware(AgentMiddleware):
-    """Mirror ``/work/`` artifacts to the host, then terminate the sandbox."""
+    """Mirror ``/workspace/`` artifacts to the host, then terminate the sandbox."""
 
     def __init__(
         self,

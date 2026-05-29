@@ -54,11 +54,11 @@ _SCHEMA_GRAPH_CACHE: CompiledStateGraph | None = None
 tempfile.gettempdir()
 
 WORK_RULES = (
-    "All dataset files live under '/work/'. Use absolute paths: "
-    "'/work/dataset.csv' (raw, immutable — never overwrite), "
-    "'/work/dataset.clean.csv' (cleaner output), "
-    "'/work/profile.json', '/work/changes.json', "
-    "'/work/report.md', '/work/plots/'. Skills live under '/skills/'."
+    "All dataset files live under '/workspace/'. Use absolute paths: "
+    "'/workspace/dataset.csv' (raw, immutable — never overwrite), "
+    "'/workspace/dataset.clean.csv' (cleaner output), "
+    "'/workspace/profile.json', '/workspace/changes.json', "
+    "'/workspace/report.md', '/workspace/plots/'. Skills live under '/skills/'."
 )
 
 
@@ -86,9 +86,9 @@ def _mirror_root(stem: str, thread_id: str) -> pathlib.Path:
         thread_id: Unique LangGraph thread identifier.
 
     Returns:
-        Absolute path under ``<project>/work/<stem>_<thread_id>``.
+        Absolute path under ``<project>/workspace/<stem>_<thread_id>``.
     """
-    return _project_root() / "work" / f"{stem}_{thread_id}"
+    return _project_root() / "workspace" / f"{stem}_{thread_id}"
 
 
 def _bootstrap_mirror(mirror_root: pathlib.Path, csv_path: pathlib.Path) -> None:
@@ -214,8 +214,8 @@ def create_analytics_agent(
             "You are a data profiler. Your sole job is to inspect and describe "
             "the dataset as-is — do not clean, transform, or analyse it. "
             "Load the 'profiler' skill for the full methodology and judgement "
-            "guidelines, then inspect '/work/dataset.csv' and write "
-            "'/work/profile.json'.\n\n" + WORK_RULES
+            "guidelines, then inspect '/workspace/dataset.csv' and write "
+            "'/workspace/profile.json'.\n\n" + WORK_RULES
         ),
         "model": model,
         "middleware": [
@@ -234,12 +234,12 @@ def create_analytics_agent(
         "description": "Cleaning agent",
         "system_prompt": (
             "You are a data cleaner. Your sole job is to fix data quality issues "
-            "identified in '/work/profile.json' — do not analyse, summarise, or "
+            "identified in '/workspace/profile.json' — do not analyse, summarise, or "
             "draw conclusions about the data. Load the 'cleaner' skill for the "
-            "full methodology and judgement guidelines. Read '/work/profile.json' "
-            "first, then apply fixes by reading '/work/dataset.csv' (raw, never "
-            "modify it) and writing the cleaned output to '/work/dataset.clean.csv', "
-            "plus '/work/changes.json' logging every decision made.\n\n" + WORK_RULES
+            "full methodology and judgement guidelines. Read '/workspace/profile.json' "
+            "first, then apply fixes by reading '/workspace/dataset.csv' (raw, never "
+            "modify it) and writing the cleaned output to '/workspace/dataset.clean.csv', "
+            "plus '/workspace/changes.json' logging every decision made.\n\n" + WORK_RULES
         ),
         "model": model,
         "middleware": [
@@ -260,9 +260,9 @@ def create_analytics_agent(
             "You are a data analyst. Your sole job is to analyse and interpret "
             "the cleaned data — do not re-clean or re-profile it. Load the "
             "'analyst' skill for the full methodology and report structure. "
-            "Read '/work/dataset.clean.csv' and '/work/changes.json' (you may "
-            "consult '/work/dataset.csv' for raw comparisons), then produce "
-            "'/work/report.md' and save any plots to '/work/plots/'. If the "
+            "Read '/workspace/dataset.clean.csv' and '/workspace/changes.json' (you may "
+            "consult '/workspace/dataset.csv' for raw comparisons), then produce "
+            "'/workspace/report.md' and save any plots to '/workspace/plots/'. If the "
             "orchestrator passed a specific user question, lead the report with "
             "a direct answer to it.\n\n" + WORK_RULES
         ),
