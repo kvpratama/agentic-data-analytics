@@ -7,8 +7,9 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 - **`SubAgentMiddleware`** — three named subagents with distinct system prompts and skills, communicating through the orchestrator via the `task` tool.
 - **Modal Sandbox Isolation** — runs in a secure, isolated microVM using `ModalSandbox` (from `langchain-modal`). The agent cannot escape the container, keeping your host machine protected.
 - **Single `execute` tool surface** — each subagent has the full power of pandas / scipy / matplotlib via one `execute` tool to run commands inside the sandbox container.
-- **Skills (progressive disclosure)** — methodology lives in `SKILL.md` files under `skills/`, mounted into the sandbox filesystem and loaded on demand.
-- **File-based state persistence** — state persists across subagents and execution calls through explicit files (`/work/dataset.csv`, `/work/profile.json`, etc.) in the sandbox rather than in-memory kernel variables.
+- **Skills (progressive disclosure)** — methodology lives in `SKILL.md` files under `skills/`, served through a host filesystem route and loaded on demand.
+- **File-based state handoff** — subagents coordinate within a turn through explicit sandbox files (`/workspace/dataset.csv`, `/workspace/profile.json`, etc.) rather than in-memory kernel variables.
+- **Thread-scoped follow-ups** — LangGraph Studio/API threads keep chat history, while host-side mirrors under `workspace/<dataset-stem>_<thread_id>/` preserve `/workspace/` artifacts across turns.
 - **Multi-provider model configuration** — swap between Anthropic, OpenAI, or Google with a single `.env` change.
 
 ## Architecture
@@ -28,15 +29,29 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
            ╰────────────────┼────────────────╯
                             ▼
               ╭──────────────────────────╮
-              │       ModalSandbox       │  ← secure isolated microVM
-              │  /work/dataset.csv       │    state survives via files
-              │  /skills/...             │
-              ╰──────────────────────────╯
+              │     CompositeBackend     │
+              │ default → ModalSandbox   │
+              │ /skills → Filesystem     │
+              ╰──────┬──────────────┬────╯
+                     │ default      │ /skills
+                     ▼              ▼
+    ╭──────────────────────────╮  ╭─────────────────────────╮
+    │    ModalSandbox          │  │ FilesystemBackend       │
+    │ /workspace/dataset.csv   │  │ local repo skills/      │
+    │ /workspace/profile.json  │  │ read-only route         │
+    ╰─────────┬────────────────╯  ╰─────────────────────────╯
+              │ seeded/downloaded each turn
+                  ▼
+        ╭───────────────────────────────╮
+        │ workspace/<stem>_<thread_id>/ │  ← thread-scoped persistence
+        ╰───────────────────────────────╯
 ```
 
-1. **Profiler** — loads the [profiling skill](skills/profiler_skills/profiler/SKILL.md), inspects `/work/dataset.csv` in the sandbox, and writes `/work/profile.json` with raw stats and a `diagnosis` list.
-2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaner/SKILL.md), reads `/work/profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by writing the cleaned output to `/work/dataset.clean.csv`, leaving the original `/work/dataset.csv` unchanged.
-3. **Analyst** — loads the [analysis skill](skills/analyst_skills/analyst/SKILL.md), reads `/work/dataset.clean.csv` (and optionally `/work/dataset.csv` for raw comparisons), runs correlations / aggregations / hypothesis tests tied to the user's objective, saves plots to `/work/plots/`, and writes the final `/work/report.md`.
+The `CompositeBackend` routes ordinary sandbox execution and `/workspace/` file I/O to `ModalSandbox`, while `/skills/` reads are served from the local repository through `FilesystemBackend`. The `workspace/<stem>_<thread_id>/` mirror is handled by the sandbox seeding and lifecycle middleware, not by the `/skills/` backend route. A write-deny `FilesystemPermission` protects `/skills/**`, so agents can load skills but cannot modify them.
+
+1. **Profiler** — loads the [profiling skill](skills/profiler_skills/profiler/SKILL.md), inspects `/workspace/dataset.csv` in the sandbox, and writes `/workspace/profile.json` with raw stats and a `diagnosis` list.
+2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaner/SKILL.md), reads `/workspace/profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by writing the cleaned output to `/workspace/dataset.clean.csv`, leaving the original `/workspace/dataset.csv` unchanged.
+3. **Analyst** — loads the [analysis skill](skills/analyst_skills/analyst/SKILL.md), reads `/workspace/dataset.clean.csv` (and optionally `/workspace/dataset.csv` for raw comparisons), runs correlations / aggregations / hypothesis tests tied to the user's objective, saves plots to `/workspace/plots/`, and writes the final `/workspace/report.md`.
 
 ## Quick Start
 
@@ -84,28 +99,59 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 Run the agent with a CSV path and a natural-language objective:
 
 ```bash
-uv run python agent.py dataset/Titanic-Dataset.csv "Investigate factors that affected survival"
+uv run python cli.py dataset/Titanic-Dataset.csv "Investigate factors that affected survival"
 ```
 
 The agent will:
 
-1. Boot an isolated `ModalSandbox` loaded with a custom Python image containing `pandas`, `scipy`, `matplotlib`, and `seaborn`.
-2. Seed the sandbox with the input dataset (copied to `/work/dataset.csv`) and the subagents' skills (copied to `/skills/`).
-3. Profile the dataset and identify quality issues (`/work/profile.json`).
-4. Clean the data and write it to `/work/dataset.clean.csv` inside the sandbox, preserving the original `/work/dataset.csv`.
-5. Analyze the cleaned data, generating plots and a final report (`/work/report.md`).
-6. Download the resulting output artifacts back to your host machine into `work/<dataset-stem>/` and terminate the sandbox VM.
+1. Boot an isolated `ModalSandbox` loaded with a custom Python image containing `pandas`, `scipy`, `scikit-learn`, `matplotlib`, and `seaborn`.
+2. Seed the sandbox with the input dataset (copied to `/workspace/dataset.csv`) and serve the subagents' skills from the host filesystem.
+3. Profile the dataset and identify quality issues (`/workspace/profile.json`).
+4. Clean the data and write it to `/workspace/dataset.clean.csv` inside the sandbox, preserving the original `/workspace/dataset.csv`.
+5. Analyze the cleaned data, generating plots and a final report (`/workspace/report.md`).
+6. Download the resulting output artifacts back to your host machine into `workspace/<dataset-stem>_<thread_id>/` and terminate the sandbox VM.
 
-Output artifacts land in `work/<dataset-stem>/`:
+Output artifacts land in a thread-scoped mirror such as `workspace/Titanic-Dataset_8f4f.../`:
 
 ```text
-work/Titanic-Dataset/
+workspace/Titanic-Dataset_<thread_id>/
+├── dataset.csv       ← raw input copied once for this thread
 ├── dataset.clean.csv ← cleaned copy (your original is untouched)
 ├── profile.json      ← profiler output
 ├── changes.json      ← cleaner log of changes
 ├── plots/*.png       ← analyst visualizations
 └── report.md         ← final insights report
 ```
+
+### LangGraph Studio
+
+The repository includes `langgraph.json`, exposing the graph as `analytics`:
+
+```json
+{
+  "dependencies": ["."],
+  "graphs": {
+    "analytics": "./agent.py:make_graph"
+  },
+  "env": ".env"
+}
+```
+
+Run Studio from the project root:
+
+```bash
+uv run langgraph dev
+```
+
+Before submitting a run, open [**Manage Assistants**](https://docs.langchain.com/langsmith/use-studio#manage-assistants) in LangGraph Studio and set the active assistant's configurable payload:
+
+```json
+{
+  "csv_path": "dataset/Titanic-Dataset.csv"
+}
+```
+
+Studio supplies the run/thread metadata. Each turn creates a fresh Modal sandbox, seeds it from `workspace/<stem>_<thread_id>/`, runs the agent, mirrors artifacts back to that directory, and terminates the sandbox. To analyze a different dataset, update the active assistant's `csv_path` and start a new thread. Old thread mirrors can be removed manually from `workspace/` when they are no longer needed.
 
 ## Try it on more datasets
 
@@ -118,7 +164,7 @@ curl -L -o dataset/iris.zip \
     https://www.kaggle.com/api/v1/datasets/download/uciml/iris
 unzip dataset/iris.zip -d dataset/
 
-uv run python agent.py dataset/Iris.csv \
+uv run python cli.py dataset/Iris.csv \
     "Which two species are the most physically similar?"
 ```
 
@@ -129,7 +175,7 @@ curl -L -o dataset/titanic-dataset.zip \
     https://www.kaggle.com/api/v1/datasets/download/yasserh/titanic-dataset
 unzip dataset/titanic-dataset.zip -d dataset/
 
-uv run python agent.py dataset/Titanic-Dataset.csv \
+uv run python cli.py dataset/Titanic-Dataset.csv \
     "Investigate factors that affected survival"
 ```
 
@@ -140,7 +186,7 @@ curl -L -o dataset/california-housing-prices.zip \
     https://www.kaggle.com/api/v1/datasets/download/camnugent/california-housing-prices
 unzip dataset/california-housing-prices.zip -d dataset/
 
-uv run python agent.py dataset/housing.csv \
+uv run python cli.py dataset/housing.csv \
     "What are the three strongest predictors of high home values?"
 ```
 
@@ -151,7 +197,7 @@ curl -L -o dataset/diamonds.zip \
     https://www.kaggle.com/api/v1/datasets/download/shivam2503/diamonds
 unzip dataset/diamonds.zip -d dataset/
 
-uv run python agent.py dataset/diamonds.csv \
+uv run python cli.py dataset/diamonds.csv \
     "Which feature combinations yield the greatest improvement in predicting diamond prices over single-feature models?"
 ```
 
@@ -159,20 +205,25 @@ uv run python agent.py dataset/diamonds.csv \
 
 ```text
 agentic-data-analytics/
-├── agent.py                          ← orchestrator + CLI entrypoint (manages ModalSandbox)
+├── agent.py                          ← LangGraph factory and orchestrator
+├── subagents.py                      ← Subagent definitions (profiler, cleaner, analyst)
+├── cli.py                            ← CLI entrypoint
+├── agent_middleware.py               ← mirrors /workspace artifacts and terminates sandboxes
 ├── config.py                         ← Settings + get_model() (multi-provider + Modal settings)
 ├── config_test.py                    ← unit tests for Settings
 ├── runtime/
 │   ├── modal_runtime.py              ← sandbox build, seed, and download helpers
-│   └── modal_runtime_test.py         ← unit tests for sandbox runtime operations
+│   ├── modal_runtime_test.py         ← unit tests for sandbox runtime operations
+│   └── workspace.py                  ← workspace mirroring and sandbox provisioning logic
 ├── skills/
 │   ├── profiler_skills/profiler/SKILL.md
 │   ├── cleaner_skills/cleaner/SKILL.md
 │   ├── analyst_skills/analyst/SKILL.md
 │   └── orchestrator_skills/orchestrator/SKILL.md
 ├── dataset/                          ← gitignored, downloaded on demand
-├── work/                             ← gitignored, host-side downloaded artifacts per-run
+├── workspace/                        ← gitignored, host-side downloaded artifacts per-run
 ├── pyproject.toml
+├── langgraph.json                    ← LangGraph Studio/API graph entrypoint
 ├── .env.example
 ├── .gitignore
 └── README.md                         ← this file
@@ -209,7 +260,7 @@ Optional LangSmith tracing variables are also recognized (see `.env.example`).
 
 ## Extending This Example
 
-1. **Feature engineer subagent** — add a `feature_engineer` step downstream of `cleaner` with a skill covering one-hot encoding, scaling, binning, datetime decomposition, and train/test splits. Outputs `/work/features.parquet`.
+1. **Feature engineer subagent** — add a `feature_engineer` step downstream of `cleaner` with a skill covering one-hot encoding, scaling, binning, datetime decomposition, and train/test splits. Outputs `/workspace/features.parquet`.
 2. **Human-in-the-loop approval** — wrap `execute` in `interrupt_on={...}` plus a `MemorySaver` checkpointer and a CLI approve/reject/edit prompt loop, so destructive commands require confirmation.
 3. **Cleaning script export** — extend the cleaning skill to emit an auditable `cleaning_pipeline.py` reproducing the applied operations.
 4. **Multi-dataset orchestration** — accept a directory of CSVs and process each in its own concurrent `ModalSandbox`.

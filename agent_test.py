@@ -2,14 +2,28 @@
 
 from __future__ import annotations
 
+import pathlib
+from collections.abc import Callable
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from deepagents.backends import StateBackend
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_modal import ModalSandbox
 
-from agent import create_analytics_agent
+from agent import create_analytics_agent, make_graph
 from config import Settings
+
+
+async def _run_to_thread_sync[**P, T](
+    func: Callable[P, T],
+    /,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> T:
+    """Run a to_thread target inline for unit tests."""
+    return func(*args, **kwargs)
 
 
 def _capture_create_deep_agent() -> tuple[MagicMock, dict[str, Any]]:
@@ -122,3 +136,83 @@ def test_create_analytics_agent_passes_backend_through() -> None:
         and any("/skills/" in path for path in p.paths)
         for p in permissions
     ), "Expected a deny-write FilesystemPermission for '/skills/'"
+
+
+async def test_make_graph_for_studio_introspection_does_not_create_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Studio schema/graph reads can build a graph without provisioning Modal."""
+    graph = MagicMock(name="CompiledStateGraph")
+    monkeypatch.setattr("agent._SCHEMA_GRAPH_CACHE", None)
+
+    with (
+        patch("agent.provision_workspace", new=AsyncMock()) as provision,
+        patch("agent.create_analytics_agent", return_value=graph) as create_agent,
+    ):
+        result = await make_graph({})
+
+    assert result is graph
+    provision.assert_not_awaited()
+    create_agent.assert_called_once()
+    backend = create_agent.call_args.args[0]
+    assert isinstance(backend, StateBackend)
+    assert create_agent.call_args.kwargs == {"mirror_root": None}
+
+
+async def test_make_graph_execution_requires_csv_path() -> None:
+    """Actual runs fail before provisioning Modal when the dataset config is missing."""
+    with patch("agent.provision_workspace", new=AsyncMock()) as provision:
+        with pytest.raises(
+            ValueError,
+            match="make_graph execution requires configurable.csv_path",
+        ):
+            await make_graph(
+                {
+                    "configurable": {
+                        "__is_for_execution__": True,
+                        "thread_id": "thread-1",
+                    }
+                }
+            )
+
+    provision.assert_not_awaited()
+
+
+async def test_make_graph_creates_sandbox_and_graph(tmp_path: pathlib.Path) -> None:
+    """make_graph calls provision_workspace and passes resources to graph factory."""
+    csv = tmp_path / "input.csv"
+    csv.write_bytes(b"a,b\n1,2\n")
+    backend = MagicMock(spec=ModalSandbox)
+    graph = MagicMock(name="CompiledStateGraph")
+
+    from runtime.workspace import SandboxResources
+
+    terminate = AsyncMock()
+    resources = SandboxResources(backend=backend, terminate=terminate)
+    mirror_root = tmp_path / "workspace" / "input_thread-1"
+
+    with (
+        patch("agent.asyncio.to_thread", side_effect=_run_to_thread_sync),
+        patch(
+            "agent.provision_workspace", new=AsyncMock(return_value=(resources, mirror_root))
+        ) as provision,
+        patch("agent.create_analytics_agent", return_value=graph) as create_agent,
+    ):
+        result = await make_graph(
+            {
+                "configurable": {
+                    "__is_for_execution__": True,
+                    "csv_path": str(csv),
+                    "stem": "input",
+                    "thread_id": "thread-1",
+                }
+            }
+        )
+
+    assert result is graph
+    provision.assert_awaited_once_with("input", "thread-1", csv)
+    create_agent.assert_called_once_with(
+        backend,
+        mirror_root=mirror_root,
+        terminate_sandbox=terminate,
+    )

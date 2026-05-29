@@ -17,11 +17,11 @@ When asked to profile a dataset before cleaning or analysis.
 ## Execution Context
 
 Use the `execute` shell tool to run code. Each `execute` call is a fresh Python process —
-**state persists via files, not in-memory variables.** Re-read `/work/dataset.csv` at the
+**state persists via files, not in-memory variables.** Re-read `/workspace/dataset.csv` at the
 top of each script.
 
-- **All dataset files live under `/work/`.** Use absolute paths: `/work/dataset.csv`,
-  `/work/profile.json`.
+- **All dataset files live under `/workspace/`.** Use absolute paths: `/workspace/dataset.csv`,
+  `/workspace/profile.json`.
 - **Output eviction.** Very large outputs (>20,000 tokens) are automatically evicted to the filesystem to protect your context window. It's good practice to print only what you need (e.g., summaries rather than raw data) to keep context clear.
 
 ### How to run Python
@@ -29,8 +29,8 @@ top of each script.
 For multi-line Python, write a script and run it:
 
 ```text
-write_file('/work/_cell.py', '<your code>')
-execute('python /work/_cell.py')
+write_file('/workspace/_cell.py', '<your code>')
+execute('python /workspace/_cell.py')
 ```
 
 For one-liners, `execute("python -c '...'")` is fine. Avoid heredocs — they are brittle
@@ -39,9 +39,9 @@ through the LLM's quoting.
 
 ## Workflow
 
-1. **Call 1 — Load + raw stats**: in a script, `df = pd.read_csv('/work/dataset.csv')`, build the `profile` dict (shape, dtypes, missingness, cardinality, describe, duplicates), and print key counts.
-2. **Call 2 — Diagnosis**: re-read `/work/dataset.csv`, iterate over columns to build the `diagnosis` list (missingness rules, castability, outliers, cardinality flags, duplicates, whitespace).
-3. **Call 3 — Write output**: merge `diagnosis` into `profile`, `json.dump` to `/work/profile.json`, print summary.
+1. **Call 1 — Load + raw stats**: in a script, `df = pd.read_csv('/workspace/dataset.csv')`, build the `profile` dict (shape, dtypes, missingness, cardinality, describe, duplicates), and print key counts.
+2. **Call 2 — Diagnosis**: re-read `/workspace/dataset.csv`, iterate over columns to build the `diagnosis` list (missingness rules, castability, outliers, cardinality flags, duplicates, whitespace).
+3. **Call 3 — Write output**: merge `diagnosis` into `profile`, `json.dump` to `/workspace/profile.json`, print summary.
 
 
 ## What to Inspect
@@ -77,7 +77,7 @@ Append one string per issue to `diagnosis`:
 
 ## Output Contract
 
-File: `/work/profile.json`.
+File: `/workspace/profile.json`.
 
 ```json
 {
@@ -118,6 +118,6 @@ n = int(df[col].dropna().str.strip().ne(df[col].dropna()).sum())
 `json.dump` can't serialise natively:
 
 ```python
-with open('/work/profile.json', 'w') as f:
+with open('/workspace/profile.json', 'w') as f:
     json.dump(profile, f, indent=2, default=str)
 ```
