@@ -70,6 +70,12 @@ async def seed_sandbox(
     await backend.aexecute("mkdir -p /work /work/plots")
 
     def _collect_uploads() -> list[tuple[str, bytes]]:
+        """Collect upload payloads as ``(path, bytes)`` pairs.
+
+        Returns:
+            list[tuple[str, bytes]]: Remote destination paths paired with file
+            contents to upload into the sandbox.
+        """
         uploads: list[tuple[str, bytes]] = []
         if mirror_root is not None:
             top_level = [
@@ -136,6 +142,11 @@ async def download_artifacts(
             artifacts.append(f"/work/plots/{name}")
 
     def _prepare_local_root() -> None:
+        """Create ``local_root`` and refresh the ``plots`` directory.
+
+        Returns:
+            None: This function does not return a value.
+        """
         local_root.mkdir(parents=True, exist_ok=True)
         plots_root = local_root / "plots"
         if plots_root.exists():
@@ -146,6 +157,12 @@ async def download_artifacts(
     results = await backend.adownload_files(artifacts)
 
     def _write_results() -> list[pathlib.Path]:
+        """Write downloaded results into ``local_root``.
+
+        Returns:
+            list[pathlib.Path]: Sorted paths for the files written to the host
+            mirror.
+        """
         written: list[pathlib.Path] = []
         for result in results:
             if result.content is None:

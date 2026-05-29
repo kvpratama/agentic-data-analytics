@@ -12,12 +12,15 @@ Example:
 """
 
 import asyncio
+import contextlib
 import os
 import pathlib
 import shutil
 import sys
 import tempfile
 import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import cast
 
 import modal
@@ -59,6 +62,14 @@ WORK_RULES = (
 )
 
 
+@dataclass(frozen=True)
+class _SandboxResources:
+    """Modal backend plus the explicit sandbox teardown callable."""
+
+    backend: ModalSandbox
+    terminate: Callable[[], Awaitable[None]]
+
+
 def _project_root() -> pathlib.Path:
     """Return the repository root containing this module."""
     return pathlib.Path(__file__).resolve().parent
@@ -77,14 +88,14 @@ def _bootstrap_mirror(mirror_root: pathlib.Path, csv_path: pathlib.Path) -> None
         shutil.copyfile(csv_path, dataset)
 
 
-async def _create_sandbox(thread_id: str) -> ModalSandbox:
+async def _create_sandbox(thread_id: str) -> _SandboxResources:
     """Create a fresh Modal sandbox backend for one graph turn.
 
     Args:
         thread_id: LangGraph thread ID used as a Modal sandbox tag.
 
     Returns:
-        A ``ModalSandbox`` backend wrapping a new Modal sandbox.
+        A ``ModalSandbox`` backend and explicit sandbox teardown callable.
     """
     settings = get_settings()
     app = await modal.App.lookup.aio(settings.modal_app_name, create_if_missing=True)
@@ -96,7 +107,10 @@ async def _create_sandbox(thread_id: str) -> ModalSandbox:
         cpu=2.0,
         memory=4096,
     )
-    return ModalSandbox(sandbox=modal_sandbox)
+    return _SandboxResources(
+        backend=ModalSandbox(sandbox=modal_sandbox),
+        terminate=modal_sandbox.terminate.aio,
+    )
 
 
 async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
@@ -109,7 +123,7 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
     Returns:
         A compiled analytics graph backed by a freshly seeded Modal sandbox.
     """
-    configurable = config["configurable"]
+    configurable = dict(config.get("configurable", {}))
     # Default to False (fail-closed): only provision a real Modal sandbox when
     # the caller explicitly signals this is an execution. Schema/read calls
     # from LangGraph Studio (assistants.read, threads.read, threads.update)
@@ -134,9 +148,18 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
         mirror_root = _project_root() / "work" / f"{stem}_{thread_id}"
         await asyncio.to_thread(_bootstrap_mirror, mirror_root, csv_path)
 
-        backend = await _create_sandbox(thread_id)
-        await seed_sandbox(backend, mirror_root=mirror_root)
-        return create_analytics_agent(backend, mirror_root=mirror_root)
+        sandbox_resources = await _create_sandbox(thread_id)
+        try:
+            await seed_sandbox(sandbox_resources.backend, mirror_root=mirror_root)
+        except Exception:
+            with contextlib.suppress(Exception):
+                await sandbox_resources.terminate()
+            raise
+        return create_analytics_agent(
+            sandbox_resources.backend,
+            mirror_root=mirror_root,
+            terminate_sandbox=sandbox_resources.terminate,
+        )
 
     global _SCHEMA_GRAPH_CACHE
     if _SCHEMA_GRAPH_CACHE is None:
@@ -148,6 +171,7 @@ def create_analytics_agent(
     backend: BackendProtocol,
     *,
     mirror_root: pathlib.Path | None = None,
+    terminate_sandbox: Callable[[], Awaitable[None]] | None = None,
 ) -> CompiledStateGraph:
     """Build the Deep Agent orchestrator with profiler, cleaner, and analyst subagents.
 
@@ -158,6 +182,7 @@ def create_analytics_agent(
         mirror_root: Optional host-side mirror directory. When supplied, a
             lifecycle middleware downloads artifacts there and terminates the
             sandbox after the turn.
+        terminate_sandbox: Async callable that releases the real Modal sandbox.
 
     Returns:
         A configured Deep Agent ready to invoke with a user objective.
@@ -246,9 +271,16 @@ def create_analytics_agent(
         ModelFallbackMiddleware(model_small),
     ]
     if mirror_root is not None:
+        if terminate_sandbox is None:
+            msg = "create_analytics_agent requires terminate_sandbox with mirror_root"
+            raise ValueError(msg)
         modal_backend = cast("ModalSandbox", backend)
         middleware.append(
-            SandboxLifecycleMiddleware(backend=modal_backend, mirror_root=mirror_root)
+            SandboxLifecycleMiddleware(
+                backend=modal_backend,
+                mirror_root=mirror_root,
+                terminate=terminate_sandbox,
+            )
         )
 
     return create_deep_agent(
