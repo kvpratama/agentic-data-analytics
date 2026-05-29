@@ -75,6 +75,22 @@ def _project_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parent
 
 
+def _mirror_root(stem: str, thread_id: str) -> pathlib.Path:
+    """Return the host-side per-thread workspace directory.
+
+    Centralises the naming convention so that ``make_graph`` and ``main``
+    always produce identical paths.
+
+    Args:
+        stem: Dataset filename stem (e.g. ``"Titanic-Dataset"``).
+        thread_id: Unique LangGraph thread identifier.
+
+    Returns:
+        Absolute path under ``<project>/work/<stem>_<thread_id>``.
+    """
+    return _project_root() / "work" / f"{stem}_{thread_id}"
+
+
 def _bootstrap_mirror(mirror_root: pathlib.Path, csv_path: pathlib.Path) -> None:
     """Create a thread mirror and copy the raw CSV into it on first use.
 
@@ -145,7 +161,7 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
             configurable["stem"] = csv_path.stem
         stem = str(configurable["stem"])
 
-        mirror_root = _project_root() / "work" / f"{stem}_{thread_id}"
+        mirror_root = _mirror_root(stem, thread_id)
         await asyncio.to_thread(_bootstrap_mirror, mirror_root, csv_path)
 
         sandbox_resources = await _create_sandbox(thread_id)
@@ -335,7 +351,7 @@ async def main() -> None:
     csv_abs = pathlib.Path(csv_path).resolve()
     stem = csv_abs.stem
     thread_id = str(uuid.uuid4())
-    local_root = _project_root() / "work" / f"{stem}_{thread_id}"
+    local_root = _mirror_root(stem, thread_id)
 
     console.print(
         Panel(
