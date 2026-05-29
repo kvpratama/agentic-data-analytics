@@ -7,10 +7,11 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from deepagents.backends import StateBackend
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_modal import ModalSandbox
 
-from agent import SchemaOnlySandboxBackend, _bootstrap_mirror, create_analytics_agent, make_graph
+from agent import _bootstrap_mirror, create_analytics_agent, make_graph
 from config import Settings
 
 
@@ -159,7 +160,7 @@ async def test_make_graph_for_studio_introspection_does_not_create_sandbox(
     seed.assert_not_awaited()
     create_agent.assert_called_once()
     backend = create_agent.call_args.args[0]
-    assert isinstance(backend, SchemaOnlySandboxBackend)
+    assert isinstance(backend, StateBackend)
     assert create_agent.call_args.kwargs == {"mirror_root": None}
 
 

@@ -22,8 +22,7 @@ from typing import cast
 
 import modal
 from deepagents import FilesystemPermission, SubAgent, create_deep_agent
-from deepagents.backends import CompositeBackend, FilesystemBackend
-from deepagents.backends.protocol import ExecuteResponse, SandboxBackendProtocol
+from deepagents.backends import BackendProtocol, CompositeBackend, FilesystemBackend, StateBackend
 from langchain.agents.middleware import (
     AgentMiddleware,
     ModelFallbackMiddleware,
@@ -41,6 +40,11 @@ from runtime.modal_runtime import build_image, seed_sandbox
 
 console = Console()
 
+# Cached schema-only graph reused for every Studio read call
+# (assistants.read, threads.read, threads.update). The topology cannot change
+# at runtime; on code edits langgraph dev hot-reloads the module and resets it.
+_SCHEMA_GRAPH_CACHE: CompiledStateGraph | None = None
+
 # Prime tempfile.tempdir at import time so later async code (e.g. Modal's
 # Resolver creating a TemporaryFile) does not hit os.getcwd() on the event
 # loop, which blockbuster flags as a blocking call under `langgraph dev`.
@@ -53,56 +57,6 @@ WORK_RULES = (
     "'/work/profile.json', '/work/changes.json', "
     "'/work/report.md', '/work/plots/'. Skills live under '/skills/'."
 )
-
-
-class SchemaOnlySandboxBackend(FilesystemBackend, SandboxBackendProtocol):
-    """No-op sandbox backend used only for Studio graph introspection.
-
-    LangGraph Studio calls graph factories for schema and graph rendering
-    outside actual run execution. This backend lets Deep Agents build the same
-    graph shape without provisioning Modal. If it is accidentally used to run
-    code, it fails loudly.
-    """
-
-    def __init__(self) -> None:
-        """Initialize a virtual filesystem root for schema-only graph construction."""
-        super().__init__(root_dir=pathlib.Path(__file__).resolve().parent, virtual_mode=True)
-
-    @property
-    def id(self) -> str:
-        """Return a stable identifier for schema-only graph construction."""
-        return "schema-only"
-
-    def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
-        """Reject shell execution because this backend is not a real sandbox.
-
-        Args:
-            command: Command that would have been executed.
-            timeout: Optional execution timeout, accepted for protocol parity.
-
-        Raises:
-            RuntimeError: Always, because schema-only graphs must not execute.
-        """
-        del command, timeout
-        msg = "SchemaOnlySandboxBackend cannot execute commands"
-        raise RuntimeError(msg)
-
-    async def aexecute(
-        self,
-        command: str,
-        *,
-        timeout: int | None = None,
-    ) -> ExecuteResponse:
-        """Async shell execution rejection for protocol parity.
-
-        Args:
-            command: Command that would have been executed.
-            timeout: Optional execution timeout, accepted for protocol parity.
-
-        Returns:
-            Never returns successfully.
-        """
-        return self.execute(command, timeout=timeout)
 
 
 def _project_root() -> pathlib.Path:
@@ -156,35 +110,42 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
         A compiled analytics graph backed by a freshly seeded Modal sandbox.
     """
     configurable = config["configurable"]
-    is_execution = bool(configurable.get("__is_for_execution__", True))
-    if not is_execution:
-        return create_analytics_agent(SchemaOnlySandboxBackend(), mirror_root=None)
+    # Default to False (fail-closed): only provision a real Modal sandbox when
+    # the caller explicitly signals this is an execution. Schema/read calls
+    # from LangGraph Studio (assistants.read, threads.read, threads.update)
+    # fall through to the cached no-op SchemaOnlySandboxBackend graph.
+    is_execution = bool(configurable.get("__is_for_execution__", False))
+    if is_execution:
+        if "thread_id" not in configurable:
+            msg = "make_graph execution requires configurable.thread_id"
+            raise ValueError(msg)
+        thread_id = str(configurable["thread_id"])
 
-    if "thread_id" not in configurable:
-        msg = "make_graph execution requires configurable.thread_id"
-        raise ValueError(msg)
-    thread_id = str(configurable["thread_id"])
+        if "csv_path" not in configurable:
+            msg = "make_graph execution requires configurable.csv_path"
+            raise ValueError(msg)
+        csv_path = await asyncio.to_thread(
+            lambda: pathlib.Path(str(configurable["csv_path"])).resolve()
+        )
+        if "stem" not in configurable:
+            configurable["stem"] = csv_path.stem
+        stem = str(configurable["stem"])
 
-    if "csv_path" not in configurable:
-        msg = "make_graph execution requires configurable.csv_path"
-        raise ValueError(msg)
-    csv_path = await asyncio.to_thread(
-        lambda: pathlib.Path(str(configurable["csv_path"])).resolve()
-    )
-    if "stem" not in configurable:
-        configurable["stem"] = csv_path.stem
-    stem = str(configurable["stem"])
+        mirror_root = _project_root() / "work" / f"{stem}_{thread_id}"
+        await asyncio.to_thread(_bootstrap_mirror, mirror_root, csv_path)
 
-    mirror_root = _project_root() / "work" / f"{stem}_{thread_id}"
-    await asyncio.to_thread(_bootstrap_mirror, mirror_root, csv_path)
+        backend = await _create_sandbox(thread_id)
+        await seed_sandbox(backend, mirror_root=mirror_root)
+        return create_analytics_agent(backend, mirror_root=mirror_root)
 
-    backend = await _create_sandbox(thread_id)
-    await seed_sandbox(backend, mirror_root=mirror_root)
-    return create_analytics_agent(backend, mirror_root=mirror_root)
+    global _SCHEMA_GRAPH_CACHE
+    if _SCHEMA_GRAPH_CACHE is None:
+        _SCHEMA_GRAPH_CACHE = create_analytics_agent(StateBackend(), mirror_root=None)
+    return _SCHEMA_GRAPH_CACHE
 
 
 def create_analytics_agent(
-    backend: SandboxBackendProtocol,
+    backend: BackendProtocol,
     *,
     mirror_root: pathlib.Path | None = None,
 ) -> CompiledStateGraph:
