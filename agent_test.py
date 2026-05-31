@@ -11,6 +11,7 @@ import pytest
 from deepagents.backends import StateBackend
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_modal import ModalSandbox
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from agent import create_analytics_agent, make_graph
 from config import Settings
@@ -136,6 +137,39 @@ def test_create_analytics_agent_passes_backend_through() -> None:
         and any("/skills/" in path for path in p.paths)
         for p in permissions
     ), "Expected a deny-write FilesystemPermission for '/skills/'"
+
+
+def test_create_analytics_agent_forwards_checkpointer_to_deep_agent() -> None:
+    """A supplied checkpointer is passed straight to create_deep_agent."""
+    sentinel = MagicMock(spec=BaseCheckpointSaver, name="checkpointer")
+    backend = MagicMock(spec=ModalSandbox)
+    mock_create, captured = _capture_create_deep_agent()
+
+    with (
+        patch("agent.get_settings", return_value=Settings(_env_file=None)),  # type: ignore
+        patch("agent.get_model", return_value=MagicMock()),
+        patch("agent.get_model_small", return_value=MagicMock()),
+        patch("agent.create_deep_agent", mock_create),
+    ):
+        create_analytics_agent(backend, checkpointer=sentinel)
+
+    assert captured["checkpointer"] is sentinel
+
+
+def test_create_analytics_agent_defaults_checkpointer_to_none() -> None:
+    """When the caller omits checkpointer, None is forwarded."""
+    backend = MagicMock(spec=ModalSandbox)
+    mock_create, captured = _capture_create_deep_agent()
+
+    with (
+        patch("agent.get_settings", return_value=Settings(_env_file=None)),  # type: ignore
+        patch("agent.get_model", return_value=MagicMock()),
+        patch("agent.get_model_small", return_value=MagicMock()),
+        patch("agent.create_deep_agent", mock_create),
+    ):
+        create_analytics_agent(backend)
+
+    assert captured["checkpointer"] is None
 
 
 async def test_make_graph_for_studio_introspection_does_not_create_sandbox(

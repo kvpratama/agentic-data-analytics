@@ -26,6 +26,7 @@ from langchain.agents.middleware import (
 )
 from langchain_core.runnables import RunnableConfig
 from langchain_modal import ModalSandbox
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from agent_middleware import SandboxLifecycleMiddleware
@@ -95,6 +96,7 @@ def create_analytics_agent(
     *,
     mirror_root: pathlib.Path | None = None,
     terminate_sandbox: Callable[[], Awaitable[None]] | None = None,
+    checkpointer: BaseCheckpointSaver[str] | None = None,
 ) -> CompiledStateGraph:
     """Build the Deep Agent orchestrator with profiler, cleaner, and analyst subagents.
 
@@ -106,6 +108,9 @@ def create_analytics_agent(
             lifecycle middleware downloads artifacts there and terminates the
             sandbox after the turn.
         terminate_sandbox: Async callable that releases the real Modal sandbox.
+        checkpointer: Optional LangGraph checkpointer for cross-turn state
+            persistence. When provided, the agent remembers prior turns keyed
+            by ``configurable.thread_id``.
 
     Returns:
         A configured Deep Agent ready to invoke with a user objective.
@@ -170,4 +175,5 @@ report.md, or both.""",
                 mode="deny",
             ),
         ],
+        checkpointer=checkpointer,
     )

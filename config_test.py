@@ -1,11 +1,13 @@
 """Tests for the Settings object and model builders."""
 
+import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from langchain_core.language_models import BaseChatModel
 
-from config import Settings, get_model, get_model_small
+from config import Settings, get_model, get_model_small, load_environment
 
 
 def test_default_modal_settings() -> None:
@@ -112,3 +114,62 @@ def test_get_model_returns_base_chat_model_subclass() -> None:
     sentinel = type("FakeModel", (BaseChatModel,), {})
     with patch("config.init_chat_model", return_value=sentinel):
         assert get_model(s) is sentinel
+
+
+def test_load_environment_os_env_beats_local_dotenv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """OS env wins over ./.env."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-os")
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=from-local\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "no-home"))
+
+    load_environment()
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "from-os"
+
+
+def test_load_environment_local_dotenv_beats_user_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """./.env wins over ~/.config/ada/config.env when OS env is unset."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=from-local\n")
+    home = tmp_path / "home"
+    user_cfg = home / ".config" / "ada"
+    user_cfg.mkdir(parents=True)
+    (user_cfg / "config.env").write_text("ANTHROPIC_API_KEY=from-user\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+    load_environment()
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "from-local"
+
+
+def test_load_environment_user_config_fills_when_no_local_or_os(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """~/.config/ada/config.env is consulted when nothing else sets the key."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    home = tmp_path / "home"
+    user_cfg = home / ".config" / "ada"
+    user_cfg.mkdir(parents=True)
+    (user_cfg / "config.env").write_text("OPENAI_API_KEY=from-user\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+    load_environment()
+
+    assert os.environ["OPENAI_API_KEY"] == "from-user"
+
+
+def test_load_environment_tolerates_missing_user_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No user-config file is fine; no error raised."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "no-home"))
+
+    load_environment()  # must not raise
