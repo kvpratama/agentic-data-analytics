@@ -217,7 +217,12 @@ def parse_command(line: str) -> tuple[str, list[str]] | None:
 
 
 async def _cmd_help(args: list[str], session: Session) -> None:
-    """Print command help."""
+    """Print the available slash commands.
+
+    Args:
+        args: Ignored command arguments.
+        session: Active REPL session whose console receives the help table.
+    """
     del args
     table = Table(title="ada commands", show_header=True, header_style="bold")
     table.add_column("Command", style="cyan", no_wrap=True)
@@ -233,7 +238,15 @@ async def _cmd_help(args: list[str], session: Session) -> None:
 
 
 async def _cmd_exit(args: list[str], session: Session) -> None:
-    """Terminate the REPL."""
+    """Terminate the REPL.
+
+    Args:
+        args: Ignored command arguments.
+        session: Active REPL session being shut down.
+
+    Raises:
+        ExitRepl: Always raised to stop the REPL loop.
+    """
     del args, session
     raise ExitRepl
 
@@ -436,11 +449,17 @@ async def run_agent_turn(session: Session, user_text: str) -> None:
             with contextlib.suppress(Exception):
                 await sandbox_resources.terminate()
         raise
+    except (RuntimeError, ValueError) as exc:
+        session.console.print(f"[red]Agent error: {exc}[/red]")
+        if sandbox_resources is not None:
+            with contextlib.suppress(Exception):
+                await sandbox_resources.terminate()
     except Exception as exc:  # noqa: BLE001
         session.console.print(f"[red]Agent error: {exc}[/red]")
         if sandbox_resources is not None:
             with contextlib.suppress(Exception):
                 await sandbox_resources.terminate()
+        raise
 
 
 async def repl_loop(session: Session) -> None:
@@ -547,6 +566,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--prompt",
         help="Single objective to run non-interactively (requires --csv).",
     )
+    parser.add_argument(
+        "csv_pos",
+        nargs="?",
+        help="Path to a CSV file (legacy positional one-shot mode).",
+    )
+    parser.add_argument(
+        "prompt_pos",
+        nargs="?",
+        help="Single objective to run non-interactively (legacy positional one-shot mode).",
+    )
     return parser
 
 
@@ -555,11 +584,16 @@ async def _amain(args: argparse.Namespace) -> None:
     load_environment()
 
     cwd = Path.cwd()
-    one_shot = args.prompt is not None
-    if one_shot and not args.csv:
-        raise SystemExit("error: --csv is required when using -p")
-    if args.csv and not one_shot:
-        raise SystemExit("error: --csv requires -p (one-shot mode); omit both for the REPL")
+    csv_path = args.csv or args.csv_pos
+    prompt = args.prompt or args.prompt_pos
+
+    one_shot = prompt is not None
+    if one_shot and not csv_path:
+        raise SystemExit("error: --csv or a CSV path is required when using a prompt/objective")
+    if csv_path and not one_shot:
+        raise SystemExit(
+            "error: csv path requires a prompt/objective (one-shot mode); omit both for the REPL"
+        )
 
     workspace = workspace_root()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -568,7 +602,7 @@ async def _amain(args: argparse.Namespace) -> None:
 
     async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
         if one_shot:
-            csv = Path(args.csv).expanduser().resolve()
+            csv = Path(csv_path).expanduser().resolve()
             if not csv.is_file():
                 raise SystemExit(f"error: {csv} is not a file")
             session = Session(
@@ -581,7 +615,7 @@ async def _amain(args: argparse.Namespace) -> None:
             console.print(
                 f"[bold blue]ada (one-shot)[/bold blue] - {csv.name} - thread {session.thread_id}"
             )
-            await run_agent_turn(session, args.prompt)
+            await run_agent_turn(session, prompt)
             return
 
         csvs = discover_csvs(cwd)

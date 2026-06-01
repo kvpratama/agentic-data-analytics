@@ -18,6 +18,8 @@ from cli import (
     Session,
     SlashError,
     _amain,
+    _cmd_exit,
+    _cmd_help,
     _safe_stem,
     build_arg_parser,
     choose_csv,
@@ -292,6 +294,24 @@ async def test_dispatch_exit_raises_exit_repl(tmp_path: pathlib.Path) -> None:
         await dispatch_slash("exit", [], session)
 
 
+def test_command_handlers_use_google_style_docstrings() -> None:
+    """Affected slash handlers describe args and raises using Google-style sections."""
+    help_doc = _cmd_help.__doc__
+    exit_doc = _cmd_exit.__doc__
+
+    assert help_doc is not None
+    assert "Args:" in help_doc
+    assert "args:" in help_doc
+    assert "session:" in help_doc
+
+    assert exit_doc is not None
+    assert "Args:" in exit_doc
+    assert "args:" in exit_doc
+    assert "session:" in exit_doc
+    assert "Raises:" in exit_doc
+    assert "ExitRepl:" in exit_doc
+
+
 async def test_dispatch_new_rotates_thread_id(tmp_path: pathlib.Path) -> None:
     """New starts a fresh thread without switching CSV."""
     csv = tmp_path / "x.csv"
@@ -524,10 +544,10 @@ async def test_run_agent_turn_streams_chunks(tmp_path: pathlib.Path) -> None:
         console=console,
     )
 
-    async def fake_astream(_inputs, config):  # noqa: ANN001
+    async def fake_astream(_inputs, config, **kwargs):  # noqa: ANN001
         assert config["configurable"]["thread_id"] == "thr-1"
         msg = MagicMock(content="hello", name="assistant")
-        yield {"model": {"messages": [msg]}}
+        yield {"type": "updates", "data": {"model": {"messages": [msg]}}}
 
     fake_graph = MagicMock()
     fake_graph.astream = fake_astream
@@ -571,7 +591,7 @@ async def test_run_agent_turn_catches_agent_errors(tmp_path: pathlib.Path) -> No
         console=console,
     )
 
-    async def boom(_inputs, config):  # noqa: ANN001
+    async def boom(_inputs, config=None, **_kwargs):  # noqa: ANN001
         raise RuntimeError("boom")
         yield
 
@@ -696,6 +716,13 @@ def test_arg_parser_one_shot() -> None:
     assert args.prompt == "what columns?"
 
 
+def test_arg_parser_legacy_positional() -> None:
+    """Positional args select legacy one-shot mode."""
+    args = build_arg_parser().parse_args(["data.csv", "what columns?"])
+    assert args.csv_pos == "data.csv"
+    assert args.prompt_pos == "what columns?"
+
+
 async def test_amain_interactive_calls_repl(tmp_path: pathlib.Path) -> None:
     """No --csv / -p routes to REPL loop with auto-discovered CSV."""
     (tmp_path / "only.csv").touch()
@@ -726,6 +753,30 @@ async def test_amain_one_shot_calls_run_agent_turn(tmp_path: pathlib.Path) -> No
     csv = tmp_path / "x.csv"
     csv.touch()
     args = build_arg_parser().parse_args(["--csv", str(csv), "-p", "go"])
+
+    @contextlib.asynccontextmanager
+    async def fake_ctx(_path: str):
+        yield MagicMock()
+
+    with (
+        patch("cli.load_environment"),
+        patch("cli.AsyncSqliteSaver.from_conn_string", fake_ctx),
+        patch("cli.repl_loop", new=AsyncMock()) as repl,
+        patch("cli.run_agent_turn", new=AsyncMock()) as turn,
+    ):
+        await _amain(args)
+
+    turn.assert_awaited_once()
+    repl.assert_not_called()
+
+
+async def test_amain_legacy_positional_one_shot_calls_run_agent_turn(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Positional <csv> <objective> runs a single turn and skips the REPL."""
+    csv = tmp_path / "x.csv"
+    csv.touch()
+    args = build_arg_parser().parse_args([str(csv), "go"])
 
     @contextlib.asynccontextmanager
     async def fake_ctx(_path: str):
@@ -799,7 +850,7 @@ async def test_run_agent_turn_sanitizes_stem_with_spaces(tmp_path: pathlib.Path)
         console=MagicMock(),
     )
 
-    async def empty_stream(_inputs, _config):  # noqa: ANN001
+    async def empty_stream(_inputs, _config=None, **_kwargs):  # noqa: ANN001
         return
         yield  # pragma: no cover
 
@@ -889,7 +940,7 @@ async def test_run_agent_turn_terminates_sandbox_when_astream_fails(
         console=MagicMock(),
     )
 
-    async def boom(_inputs, _config):  # noqa: ANN001
+    async def boom(_inputs, _config=None, **_kwargs):  # noqa: ANN001
         raise RuntimeError("boom")
         yield  # pragma: no cover
 
@@ -911,6 +962,48 @@ async def test_run_agent_turn_terminates_sandbox_when_astream_fails(
         await run_agent_turn(session, "go")
 
     terminate.assert_awaited_once()
+
+
+async def test_run_agent_turn_reraises_unexpected_exceptions_after_cleanup(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Unexpected exceptions are logged, cleaned up, and re-raised."""
+    csv = tmp_path / "data.csv"
+    csv.write_text("a,b\n1,2\n")
+    console = MagicMock()
+    session = Session(
+        cwd=tmp_path,
+        csv_path=csv,
+        thread_id="thr-1",
+        checkpointer=MagicMock(),
+        console=console,
+    )
+
+    async def boom(_inputs, _config=None, **_kwargs):  # noqa: ANN001
+        raise LookupError("surprise")
+        yield  # pragma: no cover
+
+    fake_graph = MagicMock()
+    fake_graph.astream = boom
+    backend = MagicMock()
+    terminate = AsyncMock()
+    from runtime.workspace import SandboxResources
+
+    resources = SandboxResources(backend=backend, terminate=terminate)
+
+    with (
+        patch(
+            "cli.provision_workspace",
+            new=AsyncMock(return_value=(resources, tmp_path / "m")),
+        ),
+        patch("cli.create_analytics_agent", return_value=fake_graph),
+        pytest.raises(LookupError, match="surprise"),
+    ):
+        await run_agent_turn(session, "go")
+
+    terminate.assert_awaited_once()
+    rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
+    assert "surprise" in rendered or "error" in rendered.lower()
 
 
 async def test_repl_loop_second_ctrl_c_exits(tmp_path: pathlib.Path) -> None:
