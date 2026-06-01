@@ -148,7 +148,7 @@ def create_analytics_agent(
         system_prompt="""\
 You are the Data Analytics Orchestrator. You have an `execute` tool (runs shell
 commands inside an isolated sandbox) and three subagents: profiler, cleaner,
-and analyst. All dataset files live under '/workspace/
+and analyst. All dataset files live under '/workspace/'
 
 Load the 'orchestrator' skill before deciding how to proceed. It contains your
 decision framework, routing guidance, and examples.
