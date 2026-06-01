@@ -5,7 +5,7 @@ from langchain.agents.middleware import (
     ModelRetryMiddleware,
 )
 
-from config import Settings, get_model, get_model_small
+from ada.config import Settings, get_model, get_model_small
 
 WORK_RULES = (
     "All dataset files live under '/workspace/'. Use absolute paths: "

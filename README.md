@@ -41,7 +41,7 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
     │ /workspace/profile.json  │  │ read-only route         │
     ╰─────────┬────────────────╯  ╰─────────────────────────╯
               │ seeded/downloaded each turn
-                  ▼
+              ▼
         ╭───────────────────────────────╮
         │ workspace/<stem>_<thread_id>/ │  ← thread-scoped persistence
         ╰───────────────────────────────╯
@@ -96,20 +96,57 @@ The `CompositeBackend` routes ordinary sandbox execution and `/workspace/` file 
 
 ## Usage
 
-Run the agent with a CSV path and a natural-language objective:
+`ada` is the entrypoint. Run it in any directory containing CSV files for an
+interactive REPL, or pass `--csv` and `-p` for a one-shot non-interactive turn.
+
+### Interactive
 
 ```bash
-uv run python cli.py dataset/Titanic-Dataset.csv "Investigate factors that affected survival"
+uv run ada
+
+# Set the CSV file
+/csv ./dataset/housing.csv
 ```
 
-The agent will:
+If exactly one CSV is present it is auto-selected; otherwise you'll get a
+numbered picker. After launch you're in a chat-style prompt:
 
-1. Boot an isolated `ModalSandbox` loaded with a custom Python image containing `pandas`, `scipy`, `scikit-learn`, `matplotlib`, and `seaborn`.
-2. Seed the sandbox with the input dataset (copied to `/workspace/dataset.csv`) and serve the subagents' skills from the host filesystem.
-3. Profile the dataset and identify quality issues (`/workspace/profile.json`).
-4. Clean the data and write it to `/workspace/dataset.clean.csv` inside the sandbox, preserving the original `/workspace/dataset.csv`.
-5. Analyze the cleaned data, generating plots and a final report (`/workspace/report.md`).
-6. Download the resulting output artifacts back to your host machine into `workspace/<dataset-stem>_<thread_id>/` and terminate the sandbox VM.
+```text
+ada - CSV: Titanic-Dataset.csv - thread 8f4f12c...
+Type a question, or /help for commands. Ctrl-D to exit.
+
+> what columns are in this dataset?
+profiler: profile.json written (12 columns, 891 rows)
+assistant: The dataset has 12 columns: PassengerId, Survived, ...
+
+> /open report
+```
+
+Slash commands:
+
+| Command | Description |
+|---|---|
+| `/help` | Show all commands |
+| `/exit` | Quit (also Ctrl-D) |
+| `/new` | Start a fresh thread for the current CSV |
+| `/csv <path>` | Switch CSV (starts a new thread) |
+| `/list` | List CSVs in cwd |
+| `/resume [thread_id]` | Resume a past thread (picker if no id) |
+| `/open report` | Open the current thread's `report.md` |
+
+Each turn provisions a fresh Modal sandbox, runs the agent, mirrors artifacts to
+`workspace/<stem>_<thread_id>/`, and terminates the sandbox. Conversation
+history persists across turns and across REPL sessions via
+`workspace/.checkpoints.sqlite`.
+
+### One-Shot
+
+```bash
+uv run ada --csv dataset/Titanic-Dataset.csv -p "Investigate factors that affected survival"
+```
+
+Runs a single turn and exits. The thread it creates is resumable from a later
+interactive session with `/resume`.
 
 Output artifacts land in a thread-scoped mirror such as `workspace/Titanic-Dataset_8f4f.../`:
 
@@ -131,7 +168,7 @@ The repository includes `langgraph.json`, exposing the graph as `analytics`:
 {
   "dependencies": ["."],
   "graphs": {
-    "analytics": "./agent.py:make_graph"
+    "analytics": "./ada/agent.py:make_graph"
   },
   "env": ".env"
 }
@@ -164,8 +201,8 @@ curl -L -o dataset/iris.zip \
     https://www.kaggle.com/api/v1/datasets/download/uciml/iris
 unzip dataset/iris.zip -d dataset/
 
-uv run python cli.py dataset/Iris.csv \
-    "Which two species are the most physically similar?"
+uv run ada --csv dataset/Iris.csv \
+    -p "Which two species are the most physically similar?"
 ```
 
 ### Titanic — survival drivers
@@ -175,8 +212,8 @@ curl -L -o dataset/titanic-dataset.zip \
     https://www.kaggle.com/api/v1/datasets/download/yasserh/titanic-dataset
 unzip dataset/titanic-dataset.zip -d dataset/
 
-uv run python cli.py dataset/Titanic-Dataset.csv \
-    "Investigate factors that affected survival"
+uv run ada --csv dataset/Titanic-Dataset.csv \
+    -p "Investigate factors that affected survival"
 ```
 
 ### California housing — price drivers
@@ -186,8 +223,8 @@ curl -L -o dataset/california-housing-prices.zip \
     https://www.kaggle.com/api/v1/datasets/download/camnugent/california-housing-prices
 unzip dataset/california-housing-prices.zip -d dataset/
 
-uv run python cli.py dataset/housing.csv \
-    "What are the three strongest predictors of high home values?"
+uv run ada --csv dataset/housing.csv \
+    -p "What are the three strongest predictors of high home values?"
 ```
 
 ### Diamonds — feature interactions
@@ -197,24 +234,25 @@ curl -L -o dataset/diamonds.zip \
     https://www.kaggle.com/api/v1/datasets/download/shivam2503/diamonds
 unzip dataset/diamonds.zip -d dataset/
 
-uv run python cli.py dataset/diamonds.csv \
-    "Which feature combinations yield the greatest improvement in predicting diamond prices over single-feature models?"
+uv run ada --csv dataset/diamonds.csv \
+    -p "Which feature combinations yield the greatest improvement in predicting diamond prices over single-feature models?"
 ```
 
 ## Project Structure
 
 ```text
 agentic-data-analytics/
-├── agent.py                          ← LangGraph factory and orchestrator
-├── subagents.py                      ← Subagent definitions (profiler, cleaner, analyst)
-├── cli.py                            ← CLI entrypoint
-├── agent_middleware.py               ← mirrors /workspace artifacts and terminates sandboxes
-├── config.py                         ← Settings + get_model() (multi-provider + Modal settings)
-├── config_test.py                    ← unit tests for Settings
-├── runtime/
-│   ├── modal_runtime.py              ← sandbox build, seed, and download helpers
-│   ├── modal_runtime_test.py         ← unit tests for sandbox runtime operations
-│   └── workspace.py                  ← workspace mirroring and sandbox provisioning logic
+├── ada/
+│   ├── agent.py                      ← LangGraph factory and orchestrator
+│   ├── subagents.py                  ← Subagent definitions (profiler, cleaner, analyst)
+│   ├── cli.py                        ← CLI entrypoint
+│   ├── agent_middleware.py           ← mirrors /workspace artifacts and terminates sandboxes
+│   ├── config.py                     ← Settings + get_model() (multi-provider + Modal settings)
+│   ├── config_test.py                ← unit tests for Settings
+│   └── runtime/
+│       ├── modal_runtime.py          ← sandbox build, seed, and download helpers
+│       ├── modal_runtime_test.py     ← unit tests for sandbox runtime operations
+│       └── workspace.py              ← workspace mirroring and sandbox provisioning logic
 ├── skills/
 │   ├── profiler_skills/profiler/SKILL.md
 │   ├── cleaner_skills/cleaner/SKILL.md
@@ -257,6 +295,37 @@ TEMPERATURE=0.0
 ```
 
 Optional LangSmith tracing variables are also recognized (see `.env.example`).
+
+### User-Global Config
+
+`ada` launches from arbitrary directories, so it cannot rely on a `./.env` being
+present. Set your API keys in either:
+
+- **Your shell profile** (highest priority):
+
+  ```bash
+  # In ~/.zshrc, ~/.bashrc, etc.
+  export ANTHROPIC_API_KEY=sk-ant-...
+  ```
+
+- **A user-global config file** at `~/.config/ada/config.env`:
+
+  ```bash
+  mkdir -p ~/.config/ada
+  cat > ~/.config/ada/config.env <<'EOF'
+  MODEL=anthropic:claude-sonnet-4-5-20250929
+  MODEL_SMALL=anthropic:claude-3-5-sonnet-20241022
+  ANTHROPIC_API_KEY=sk-ant-...
+  EOF
+  ```
+
+Resolution order is **OS environment > `./.env` in cwd >
+`~/.config/ada/config.env`**, with `override=False` at each step. Existing keys
+are never replaced.
+
+Modal credentials (`MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`) are read by the
+Modal SDK directly from `~/.modal.toml` (created by `modal token new`) or the
+corresponding environment variables.
 
 ## Extending This Example
 

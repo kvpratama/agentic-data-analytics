@@ -18,6 +18,7 @@ Examples (.env):
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
@@ -25,9 +26,32 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Populate os.environ from .env so provider SDKs can find ANTHROPIC_API_KEY,
-# OPENAI_API_KEY, etc. via their default lookups.
-load_dotenv()
+# NOTE: env loading is deliberately NOT performed at import time. Callers
+# (cli.main, tests, langgraph dev startup) invoke load_environment() once
+# at the right time so the cwd-relative ./.env and user-global config are
+# read with explicit ordering.
+
+
+def load_environment() -> None:
+    """Populate ``os.environ`` from the layered config sources.
+
+    Resolution order (highest priority first):
+
+    1. OS environment variables already set in the process.
+    2. ``./.env`` in the current working directory (project-local overrides).
+    3. ``~/.config/ada/config.env`` (user-global config).
+
+    Both ``load_dotenv`` calls use ``override=False`` so existing keys are
+    never replaced. The local ``./.env`` is loaded *before* the user config,
+    so it claims the available keys first — making ``./.env`` the second-
+    tier source.
+    """
+    cwd_env = Path.cwd() / ".env"
+    if cwd_env.exists():
+        load_dotenv(cwd_env, override=False)  # ./.env fills gaps the OS didn't set
+    user_config = Path.home() / ".config" / "ada" / "config.env"
+    if user_config.exists():
+        load_dotenv(user_config, override=False)
 
 
 class Settings(BaseSettings):

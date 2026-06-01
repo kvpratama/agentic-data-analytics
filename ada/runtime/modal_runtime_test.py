@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from langchain_modal import ModalSandbox
 
-from runtime.modal_runtime import build_image, download_artifacts, seed_sandbox
+from ada.runtime.modal_runtime import build_image, download_artifacts, seed_sandbox
 
 
 def test_build_image_pins_data_science_stack() -> None:
@@ -195,7 +195,7 @@ def test_build_image_includes_scikit_learn() -> None:
     """
     import inspect
 
-    from runtime import modal_runtime
+    from ada.runtime import modal_runtime
 
     source = inspect.getsource(modal_runtime.build_image)
     assert "scikit-learn" in source, (

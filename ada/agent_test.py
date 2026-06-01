@@ -11,9 +11,10 @@ import pytest
 from deepagents.backends import StateBackend
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_modal import ModalSandbox
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from agent import create_analytics_agent, make_graph
-from config import Settings
+from ada.agent import create_analytics_agent, make_graph
+from ada.config import Settings
 
 
 async def _run_to_thread_sync[**P, T](
@@ -50,10 +51,10 @@ def test_create_analytics_agent_wires_retry_and_fallback_middleware_on_orchestra
     mock_create, captured = _capture_create_deep_agent()
 
     with (
-        patch("agent.get_settings", return_value=settings),
-        patch("agent.get_model", return_value=MagicMock(name="primary")),
-        patch("agent.get_model_small", return_value=MagicMock(name="small")),
-        patch("agent.create_deep_agent", mock_create),
+        patch("ada.agent.get_settings", return_value=settings),
+        patch("ada.agent.get_model", return_value=MagicMock(name="primary")),
+        patch("ada.agent.get_model_small", return_value=MagicMock(name="small")),
+        patch("ada.agent.create_deep_agent", mock_create),
     ):
         create_analytics_agent(backend)
 
@@ -77,10 +78,10 @@ def test_create_analytics_agent_wires_middleware_on_each_subagent() -> None:
     mock_create, captured = _capture_create_deep_agent()
 
     with (
-        patch("agent.get_settings", return_value=settings),
-        patch("agent.get_model", return_value=MagicMock(name="primary")),
-        patch("agent.get_model_small", return_value=MagicMock(name="small")),
-        patch("agent.create_deep_agent", mock_create),
+        patch("ada.agent.get_settings", return_value=settings),
+        patch("ada.agent.get_model", return_value=MagicMock(name="primary")),
+        patch("ada.agent.get_model_small", return_value=MagicMock(name="small")),
+        patch("ada.agent.create_deep_agent", mock_create),
     ):
         create_analytics_agent(backend)
 
@@ -111,10 +112,10 @@ def test_create_analytics_agent_passes_backend_through() -> None:
     mock_create, captured = _capture_create_deep_agent()
 
     with (
-        patch("agent.get_settings", return_value=Settings(_env_file=None)),  # type: ignore
-        patch("agent.get_model", return_value=MagicMock()),
-        patch("agent.get_model_small", return_value=MagicMock()),
-        patch("agent.create_deep_agent", mock_create),
+        patch("ada.agent.get_settings", return_value=Settings(_env_file=None)),  # type: ignore
+        patch("ada.agent.get_model", return_value=MagicMock()),
+        patch("ada.agent.get_model_small", return_value=MagicMock()),
+        patch("ada.agent.create_deep_agent", mock_create),
     ):
         create_analytics_agent(backend)
 
@@ -124,7 +125,7 @@ def test_create_analytics_agent_passes_backend_through() -> None:
     assert "/skills/" in composite.routes
     skills_fs = composite.routes["/skills/"]
     assert isinstance(skills_fs, FilesystemBackend)
-    expected_skills_root = pathlib.Path(__file__).resolve().parent / "skills"
+    expected_skills_root = pathlib.Path(__file__).resolve().parent.parent / "skills"
     assert pathlib.Path(skills_fs.cwd) == expected_skills_root
     assert skills_fs.virtual_mode is True
 
@@ -138,16 +139,49 @@ def test_create_analytics_agent_passes_backend_through() -> None:
     ), "Expected a deny-write FilesystemPermission for '/skills/'"
 
 
+def test_create_analytics_agent_forwards_checkpointer_to_deep_agent() -> None:
+    """A supplied checkpointer is passed straight to create_deep_agent."""
+    sentinel = MagicMock(spec=BaseCheckpointSaver, name="checkpointer")
+    backend = MagicMock(spec=ModalSandbox)
+    mock_create, captured = _capture_create_deep_agent()
+
+    with (
+        patch("ada.agent.get_settings", return_value=Settings(_env_file=None)),  # type: ignore
+        patch("ada.agent.get_model", return_value=MagicMock()),
+        patch("ada.agent.get_model_small", return_value=MagicMock()),
+        patch("ada.agent.create_deep_agent", mock_create),
+    ):
+        create_analytics_agent(backend, checkpointer=sentinel)
+
+    assert captured["checkpointer"] is sentinel
+
+
+def test_create_analytics_agent_defaults_checkpointer_to_none() -> None:
+    """When the caller omits checkpointer, None is forwarded."""
+    backend = MagicMock(spec=ModalSandbox)
+    mock_create, captured = _capture_create_deep_agent()
+
+    with (
+        patch("ada.agent.get_settings", return_value=Settings(_env_file=None)),  # type: ignore
+        patch("ada.agent.get_model", return_value=MagicMock()),
+        patch("ada.agent.get_model_small", return_value=MagicMock()),
+        patch("ada.agent.create_deep_agent", mock_create),
+    ):
+        create_analytics_agent(backend)
+
+    assert captured["checkpointer"] is None
+
+
 async def test_make_graph_for_studio_introspection_does_not_create_sandbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Studio schema/graph reads can build a graph without provisioning Modal."""
     graph = MagicMock(name="CompiledStateGraph")
-    monkeypatch.setattr("agent._SCHEMA_GRAPH_CACHE", None)
+    monkeypatch.setattr("ada.agent._SCHEMA_GRAPH_CACHE", None)
 
     with (
-        patch("agent.provision_workspace", new=AsyncMock()) as provision,
-        patch("agent.create_analytics_agent", return_value=graph) as create_agent,
+        patch("ada.agent.provision_workspace", new=AsyncMock()) as provision,
+        patch("ada.agent.create_analytics_agent", return_value=graph) as create_agent,
     ):
         result = await make_graph({})
 
@@ -161,7 +195,7 @@ async def test_make_graph_for_studio_introspection_does_not_create_sandbox(
 
 async def test_make_graph_execution_requires_csv_path() -> None:
     """Actual runs fail before provisioning Modal when the dataset config is missing."""
-    with patch("agent.provision_workspace", new=AsyncMock()) as provision:
+    with patch("ada.agent.provision_workspace", new=AsyncMock()) as provision:
         with pytest.raises(
             ValueError,
             match="make_graph execution requires configurable.csv_path",
@@ -185,18 +219,18 @@ async def test_make_graph_creates_sandbox_and_graph(tmp_path: pathlib.Path) -> N
     backend = MagicMock(spec=ModalSandbox)
     graph = MagicMock(name="CompiledStateGraph")
 
-    from runtime.workspace import SandboxResources
+    from ada.runtime.workspace import SandboxResources
 
     terminate = AsyncMock()
     resources = SandboxResources(backend=backend, terminate=terminate)
     mirror_root = tmp_path / "workspace" / "input_thread-1"
 
     with (
-        patch("agent.asyncio.to_thread", side_effect=_run_to_thread_sync),
+        patch("ada.agent.asyncio.to_thread", side_effect=_run_to_thread_sync),
         patch(
-            "agent.provision_workspace", new=AsyncMock(return_value=(resources, mirror_root))
+            "ada.agent.provision_workspace", new=AsyncMock(return_value=(resources, mirror_root))
         ) as provision,
-        patch("agent.create_analytics_agent", return_value=graph) as create_agent,
+        patch("ada.agent.create_analytics_agent", return_value=graph) as create_agent,
     ):
         result = await make_graph(
             {

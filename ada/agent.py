@@ -4,11 +4,12 @@ Three subagents — profiler, cleaner, and analyst — share a single ephemeral
 Modal microVM (``ModalSandbox`` backend). Each subagent loads its own
 SKILL.md (progressive disclosure) for methodology and pandas/scipy snippets.
 
-Usage:
-    python cli.py <csv_path> <objective>
+Entry points:
+    ada                                                       # interactive REPL
+    ada --csv dataset/Titanic-Dataset.csv -p "<objective>"    # one-shot
 
-Example:
-    python cli.py dataset/Titanic-Dataset.csv "Investigate factors that affected survival"
+See ``cli.py`` for the user-facing CLI and ``make_graph`` below for the
+LangGraph Studio entrypoint.
 """
 
 import asyncio
@@ -26,12 +27,13 @@ from langchain.agents.middleware import (
 )
 from langchain_core.runnables import RunnableConfig
 from langchain_modal import ModalSandbox
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
-from agent_middleware import SandboxLifecycleMiddleware
-from config import get_model, get_model_small, get_settings
-from runtime.workspace import provision_workspace
-from subagents import get_subagents
+from ada.agent_middleware import SandboxLifecycleMiddleware
+from ada.config import get_model, get_model_small, get_settings
+from ada.runtime.workspace import provision_workspace
+from ada.subagents import get_subagents
 
 # Cached schema-only graph reused for every Studio read call
 # (assistants.read, threads.read, threads.update). The topology cannot change
@@ -95,6 +97,7 @@ def create_analytics_agent(
     *,
     mirror_root: pathlib.Path | None = None,
     terminate_sandbox: Callable[[], Awaitable[None]] | None = None,
+    checkpointer: BaseCheckpointSaver[str] | None = None,
 ) -> CompiledStateGraph:
     """Build the Deep Agent orchestrator with profiler, cleaner, and analyst subagents.
 
@@ -106,6 +109,9 @@ def create_analytics_agent(
             lifecycle middleware downloads artifacts there and terminates the
             sandbox after the turn.
         terminate_sandbox: Async callable that releases the real Modal sandbox.
+        checkpointer: Optional LangGraph checkpointer for cross-turn state
+            persistence. When provided, the agent remembers prior turns keyed
+            by ``configurable.thread_id``.
 
     Returns:
         A configured Deep Agent ready to invoke with a user objective.
@@ -142,7 +148,7 @@ def create_analytics_agent(
         system_prompt="""\
 You are the Data Analytics Orchestrator. You have an `execute` tool (runs shell
 commands inside an isolated sandbox) and three subagents: profiler, cleaner,
-and analyst.
+and analyst. All dataset files live under '/workspace/'
 
 Load the 'orchestrator' skill before deciding how to proceed. It contains your
 decision framework, routing guidance, and examples.
@@ -157,7 +163,7 @@ report.md, or both.""",
             default=backend,
             routes={
                 "/skills/": FilesystemBackend(
-                    root_dir=str(pathlib.Path(__file__).resolve().parent / "skills"),
+                    root_dir=str(pathlib.Path(__file__).resolve().parent.parent / "skills"),
                     virtual_mode=True,
                 ),
             },
@@ -170,4 +176,5 @@ report.md, or both.""",
                 mode="deny",
             ),
         ],
+        checkpointer=checkpointer,
     )

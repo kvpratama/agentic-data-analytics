@@ -9,8 +9,8 @@ from dataclasses import dataclass
 import modal
 from langchain_modal import ModalSandbox
 
-from config import get_settings
-from runtime.modal_runtime import build_image, seed_sandbox
+from ada.config import get_settings
+from ada.runtime.modal_runtime import build_image, seed_sandbox
 
 
 @dataclass(frozen=True)
@@ -23,7 +23,7 @@ class SandboxResources:
 
 def _project_root() -> pathlib.Path:
     """Return the repository root containing this module."""
-    return pathlib.Path(__file__).resolve().parent.parent
+    return pathlib.Path(__file__).resolve().parent.parent.parent
 
 
 _SAFE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9._-]+$")
