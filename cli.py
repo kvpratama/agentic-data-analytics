@@ -389,15 +389,61 @@ async def run_agent_turn(session: Session, user_text: str) -> None:
                 "__is_for_execution__": True,
             }
         }
-        async for chunk in agent.astream({"messages": [("user", user_text)]}, config=config):
-            if "model" in chunk:
-                msg = chunk["model"]["messages"][-1]
-                if msg.content:
-                    session.console.print(f"[dim]{msg.name or 'agent'}:[/dim] {msg.content}")
-            elif "tools" in chunk:
-                msg = chunk["tools"]["messages"][-1]
-                if msg.content:
-                    session.console.print(f"[italic]{msg.name or 'agent'}:[/italic] {msg.content}")
+        async for chunk in agent.astream(
+            {"messages": [("user", user_text)]},
+            config=config,
+            stream_mode="updates",
+            subgraphs=True,
+            version="v2",
+        ):
+            if chunk["type"] == "updates":
+                if "model" in chunk["data"]:
+                    msg = chunk["data"]["model"]["messages"][-1]
+                    if msg.content:
+                        if isinstance(msg.content, list):
+                            for content in msg.content:
+                                if content["type"] == "thinking":
+                                    session.console.print(
+                                        f"[dim]{msg.name or 'agent'}(thinking): [/dim]",
+                                        f"[dim]{content['thinking']}[/dim]",
+                                    )
+                                else:
+                                    session.console.print(
+                                        f"[bold green]🤖 {msg.name or 'agent'}:[/bold green] ",
+                                        f"{content['text']}",
+                                    )
+                        else:
+                            session.console.print(
+                                f"[bold green]🤖 {msg.name or 'agent'}:[/bold green] {msg.content}"
+                            )
+
+                        session.console.print("=" * 50)
+
+                elif "tools" in chunk["data"]:
+                    msg = chunk["data"]["tools"]["messages"][-1]
+                    if msg.content:
+                        preview = msg.content[:150]
+                        suffix = "..." if len(msg.content) > 150 else ""
+                        session.console.print(
+                            f"[italic cyan]🔧 {msg.name or 'tools'}:[/italic cyan] ",
+                            f"{preview}{suffix}",
+                        )
+
+                        session.console.print("=" * 50)
+
+            # if "model" in chunk:
+            #     msg = chunk["model"]["messages"][-1]
+            #     if msg.content:
+            #         session.console.print(f"[dim]{msg.name or 'agent'}:[/dim] {msg.content}")
+            # elif "tools" in chunk:
+            #     msg = chunk["tools"]["messages"][-1]
+            #     if msg.content:
+            #         session.console.print(
+            #             f"[italic]{msg.name or 'agent'}:[/italic] {msg.content[:150]}..."
+            #         )
+            # else:
+            #     print(chunk)
+
     except asyncio.CancelledError:
         if sandbox_resources is not None:
             with contextlib.suppress(Exception):
