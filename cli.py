@@ -7,7 +7,9 @@ import asyncio
 import contextlib
 import os
 import pathlib
+import re
 import shlex
+import signal
 import subprocess
 import sys
 import uuid
@@ -147,16 +149,47 @@ def open_report(report_path: pathlib.Path, *, console: Console) -> None:
         console.print(f"[yellow]Report not found at {report_path}[/yellow]")
         return
     if sys.platform == "darwin":
-        subprocess.run(["open", str(report_path)], check=False)
+        opener = ["open", str(report_path)]
     elif sys.platform == "win32":
-        os.startfile(str(report_path))  # type: ignore[attr-defined]
+        try:
+            os.startfile(str(report_path))  # type: ignore[attr-defined]
+        except OSError as exc:
+            console.print(f"[yellow]Could not open {report_path}: {exc}[/yellow]")
+        return
     else:
-        subprocess.run(["xdg-open", str(report_path)], check=False)
+        opener = ["xdg-open", str(report_path)]
+    try:
+        subprocess.run(opener, check=False)
+    except FileNotFoundError:
+        console.print(
+            f"[yellow]Could not open {report_path}: '{opener[0]}' is not installed. "
+            f"Open the file manually.[/yellow]"
+        )
 
 
 def workspace_root() -> pathlib.Path:
     """Return the host-side ``workspace/`` directory."""
     return pathlib.Path(__file__).resolve().parent / "workspace"
+
+
+_UNSAFE_STEM_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _safe_stem(name: str) -> str:
+    """Coerce a filename stem to the safe character set used by ``provision_workspace``.
+
+    Args:
+        name: Raw stem (e.g. ``"my data"``).
+
+    Returns:
+        Stem with every character outside ``[A-Za-z0-9._-]`` replaced by ``_``.
+
+    Raises:
+        ValueError: If the input is empty.
+    """
+    if not name:
+        raise ValueError("stem must not be empty")
+    return _UNSAFE_STEM_CHARS.sub("_", name)
 
 
 def parse_command(line: str) -> tuple[str, list[str]] | None:
@@ -167,11 +200,17 @@ def parse_command(line: str) -> tuple[str, list[str]] | None:
 
     Returns:
         ``(verb, args)`` for slash commands; ``None`` for plain text.
+
+    Raises:
+        SlashError: If the line starts with ``/`` but its quoting is malformed.
     """
     stripped = line.strip()
     if not stripped.startswith("/") or stripped == "/":
         return None
-    tokens = shlex.split(stripped[1:])
+    try:
+        tokens = shlex.split(stripped[1:])
+    except ValueError as exc:
+        raise SlashError(f"malformed command: {exc}") from exc
     if not tokens:
         return None
     return tokens[0], tokens[1:]
@@ -314,6 +353,11 @@ async def dispatch_slash(verb: str, args: list[str], session: Session) -> None:
 async def run_agent_turn(session: Session, user_text: str) -> None:
     """Run a single agent turn end-to-end.
 
+    Catches errors from provisioning, graph construction, or streaming and prints
+    them to the console so the REPL stays alive. If a Modal sandbox was provisioned
+    but the turn fails before its lifecycle middleware can release it, the sandbox
+    is terminated explicitly here.
+
     Args:
         session: Current REPL session.
         user_text: User's natural-language message.
@@ -325,25 +369,26 @@ async def run_agent_turn(session: Session, user_text: str) -> None:
         return
 
     csv_abs = session.csv_path.resolve()
-    sandbox_resources, mirror_root = await provision_workspace(
-        csv_abs.stem, session.thread_id, csv_abs
-    )
-    agent = create_analytics_agent(
-        sandbox_resources.backend,
-        mirror_root=mirror_root,
-        terminate_sandbox=sandbox_resources.terminate,
-        checkpointer=session.checkpointer,
-    )
-    config: RunnableConfig = {
-        "configurable": {
-            "thread_id": session.thread_id,
-            "csv_path": str(csv_abs),
-            "stem": csv_abs.stem,
-            "__is_for_execution__": True,
-        }
-    }
-
+    safe_stem = _safe_stem(csv_abs.stem)
+    sandbox_resources = None
     try:
+        sandbox_resources, mirror_root = await provision_workspace(
+            safe_stem, session.thread_id, csv_abs
+        )
+        agent = create_analytics_agent(
+            sandbox_resources.backend,
+            mirror_root=mirror_root,
+            terminate_sandbox=sandbox_resources.terminate,
+            checkpointer=session.checkpointer,
+        )
+        config: RunnableConfig = {
+            "configurable": {
+                "thread_id": session.thread_id,
+                "csv_path": str(csv_abs),
+                "stem": safe_stem,
+                "__is_for_execution__": True,
+            }
+        }
         async for chunk in agent.astream({"messages": [("user", user_text)]}, config=config):
             if "model" in chunk:
                 msg = chunk["model"]["messages"][-1]
@@ -353,18 +398,35 @@ async def run_agent_turn(session: Session, user_text: str) -> None:
                 msg = chunk["tools"]["messages"][-1]
                 if msg.content:
                     session.console.print(f"[italic]{msg.name or 'agent'}:[/italic] {msg.content}")
+    except asyncio.CancelledError:
+        if sandbox_resources is not None:
+            with contextlib.suppress(Exception):
+                await sandbox_resources.terminate()
+        raise
     except Exception as exc:  # noqa: BLE001
         session.console.print(f"[red]Agent error: {exc}[/red]")
+        if sandbox_resources is not None:
+            with contextlib.suppress(Exception):
+                await sandbox_resources.terminate()
 
 
 async def repl_loop(session: Session) -> None:
     """Run the interactive REPL until the user exits.
+
+    Behavior:
+        * Ctrl-D at the prompt exits cleanly.
+        * One Ctrl-C at the prompt prints a hint; a second consecutive Ctrl-C exits.
+        * Ctrl-C during an in-flight agent turn cancels the turn and returns to
+          the prompt (Unix only — SIGINT handler is installed for the duration of
+          the turn). On platforms without ``loop.add_signal_handler`` support the
+          REPL falls back to catching ``KeyboardInterrupt`` from ``await``.
 
     Args:
         session: Mutable REPL state.
     """
     prompt = PromptSession()
     session.console.print("[dim]Type a question, or /help for commands. Ctrl-D to exit.[/dim]")
+    consecutive_ctrl_c = 0
     while True:
         try:
             line = await prompt.prompt_async("> ")
@@ -372,16 +434,23 @@ async def repl_loop(session: Session) -> None:
             session.console.print("")
             return
         except KeyboardInterrupt:
-            session.console.print(
-                "[dim](use /exit or Ctrl-D to quit; Ctrl-C interrupts in-flight turns)[/dim]"
-            )
+            consecutive_ctrl_c += 1
+            if consecutive_ctrl_c >= 2:
+                session.console.print("[dim]Exiting.[/dim]")
+                return
+            session.console.print("[dim](press Ctrl-C again to exit, or use /exit / Ctrl-D)[/dim]")
             continue
+        consecutive_ctrl_c = 0
 
         stripped = line.strip()
         if not stripped:
             continue
 
-        parsed = parse_command(stripped)
+        try:
+            parsed = parse_command(stripped)
+        except SlashError as err:
+            session.console.print(f"[red]{err}[/red]")
+            continue
         if parsed is not None:
             verb, args = parsed
             try:
@@ -392,14 +461,38 @@ async def repl_loop(session: Session) -> None:
                 session.console.print(f"[red]{err}[/red]")
             continue
 
-        task = asyncio.create_task(run_agent_turn(session, stripped))
+        await _run_turn_with_cancellation(session, stripped)
+
+
+async def _run_turn_with_cancellation(session: Session, user_text: str) -> None:
+    """Run an agent turn that can be cancelled by SIGINT (Ctrl-C) without exiting the REPL.
+
+    Installs a temporary SIGINT handler that cancels the inner task; restores the
+    previous handler when the turn completes. Falls back to ``KeyboardInterrupt``
+    handling on platforms where the loop has no signal-handler support.
+    """
+    loop = asyncio.get_running_loop()
+    task = asyncio.create_task(run_agent_turn(session, user_text))
+    handler_installed = False
+    try:
+        loop.add_signal_handler(signal.SIGINT, task.cancel)
+        handler_installed = True
+    except (NotImplementedError, RuntimeError):
+        # Windows / unsupported loop: signal-based cancellation isn't available.
+        pass
+
+    try:
         try:
             await task
-        except KeyboardInterrupt:
+        except (asyncio.CancelledError, KeyboardInterrupt):
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
             session.console.print("[yellow](turn cancelled)[/yellow]")
+    finally:
+        if handler_installed:
+            with contextlib.suppress(NotImplementedError, RuntimeError):
+                loop.remove_signal_handler(signal.SIGINT)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -432,6 +525,8 @@ async def _amain(args: argparse.Namespace) -> None:
     one_shot = args.prompt is not None
     if one_shot and not args.csv:
         raise SystemExit("error: --csv is required when using -p")
+    if args.csv and not one_shot:
+        raise SystemExit("error: --csv requires -p (one-shot mode); omit both for the REPL")
 
     workspace = workspace_root()
     workspace.mkdir(parents=True, exist_ok=True)

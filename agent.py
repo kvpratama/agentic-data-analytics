@@ -4,11 +4,12 @@ Three subagents — profiler, cleaner, and analyst — share a single ephemeral
 Modal microVM (``ModalSandbox`` backend). Each subagent loads its own
 SKILL.md (progressive disclosure) for methodology and pandas/scipy snippets.
 
-Usage:
-    python cli.py <csv_path> <objective>
+Entry points:
+    ada                                                       # interactive REPL
+    ada --csv dataset/Titanic-Dataset.csv -p "<objective>"    # one-shot
 
-Example:
-    python cli.py dataset/Titanic-Dataset.csv "Investigate factors that affected survival"
+See ``cli.py`` for the user-facing CLI and ``make_graph`` below for the
+LangGraph Studio entrypoint.
 """
 
 import asyncio

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 import pathlib
@@ -17,6 +18,7 @@ from cli import (
     Session,
     SlashError,
     _amain,
+    _safe_stem,
     build_arg_parser,
     choose_csv,
     discover_csvs,
@@ -203,6 +205,20 @@ def test_open_report_macos_uses_open(tmp_path: pathlib.Path) -> None:
     ):
         open_report(report, console=console)
     run.assert_called_once_with(["open", str(report)], check=False)
+
+
+def test_open_report_handles_missing_opener_binary(tmp_path: pathlib.Path) -> None:
+    """If xdg-open / open is not installed, print a hint instead of crashing."""
+    report = tmp_path / "report.md"
+    report.write_text("# r")
+    console = MagicMock()
+    with (
+        patch("cli.sys.platform", "linux"),
+        patch("cli.subprocess.run", side_effect=FileNotFoundError("xdg-open")),
+    ):
+        open_report(report, console=console)
+    rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
+    assert "xdg-open" in rendered or "could not" in rendered.lower()
 
 
 def test_open_report_windows_uses_startfile(tmp_path: pathlib.Path) -> None:
@@ -735,3 +751,238 @@ async def test_amain_one_shot_requires_csv_when_prompt_given() -> None:
         pytest.raises(SystemExit),
     ):
         await _amain(args)
+
+
+async def test_amain_csv_without_prompt_errors() -> None:
+    """--csv without -p exits because the flag pair only describes one-shot mode."""
+    args = build_arg_parser().parse_args(["--csv", "data.csv"])
+    with (
+        patch("cli.load_environment"),
+        pytest.raises(SystemExit),
+    ):
+        await _amain(args)
+
+
+def test_parse_command_malformed_quoting_raises_slash_error() -> None:
+    """Unterminated quoting in a slash command yields a user-facing SlashError."""
+    with pytest.raises(SlashError, match="malformed"):
+        parse_command('/csv "unterminated')
+
+
+def test_safe_stem_passthrough_for_valid_characters() -> None:
+    """Names already matching the safe set are returned unchanged."""
+    assert _safe_stem("Titanic-Dataset") == "Titanic-Dataset"
+    assert _safe_stem("housing_data.v2") == "housing_data.v2"
+
+
+def test_safe_stem_replaces_unsafe_characters_with_underscore() -> None:
+    """Spaces and other unsafe characters collapse to underscores."""
+    assert _safe_stem("my data") == "my_data"
+    assert _safe_stem("weird/name?") == "weird_name_"
+
+
+def test_safe_stem_rejects_empty_after_sanitization() -> None:
+    """A stem reduced to the empty string is rejected."""
+    with pytest.raises(ValueError, match="empty"):
+        _safe_stem("")
+
+
+async def test_run_agent_turn_sanitizes_stem_with_spaces(tmp_path: pathlib.Path) -> None:
+    """CSV filenames with spaces are passed to provision_workspace as a safe stem."""
+    csv = tmp_path / "my data.csv"
+    csv.write_text("a,b\n1,2\n")
+    session = Session(
+        cwd=tmp_path,
+        csv_path=csv,
+        thread_id="thr-1",
+        checkpointer=MagicMock(),
+        console=MagicMock(),
+    )
+
+    async def empty_stream(_inputs, _config):  # noqa: ANN001
+        return
+        yield  # pragma: no cover
+
+    fake_graph = MagicMock()
+    fake_graph.astream = empty_stream
+    backend = MagicMock()
+    terminate = AsyncMock()
+    from runtime.workspace import SandboxResources
+
+    resources = SandboxResources(backend=backend, terminate=terminate)
+
+    with (
+        patch(
+            "cli.provision_workspace",
+            new=AsyncMock(return_value=(resources, tmp_path / "m")),
+        ) as provision,
+        patch("cli.create_analytics_agent", return_value=fake_graph),
+    ):
+        await run_agent_turn(session, "go")
+
+    provision.assert_awaited_once_with("my_data", "thr-1", csv.resolve())
+
+
+async def test_run_agent_turn_catches_provisioning_errors(tmp_path: pathlib.Path) -> None:
+    """A provision_workspace failure is caught; no sandbox to terminate."""
+    csv = tmp_path / "data.csv"
+    csv.write_text("a,b\n1,2\n")
+    console = MagicMock()
+    session = Session(
+        cwd=tmp_path,
+        csv_path=csv,
+        thread_id="thr-1",
+        checkpointer=MagicMock(),
+        console=console,
+    )
+    with patch(
+        "cli.provision_workspace",
+        new=AsyncMock(side_effect=RuntimeError("modal down")),
+    ):
+        await run_agent_turn(session, "go")
+    rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
+    assert "modal down" in rendered or "error" in rendered.lower()
+
+
+async def test_run_agent_turn_terminates_sandbox_when_graph_creation_fails(
+    tmp_path: pathlib.Path,
+) -> None:
+    """If graph construction throws after provisioning, the sandbox is still terminated."""
+    csv = tmp_path / "data.csv"
+    csv.write_text("a,b\n1,2\n")
+    session = Session(
+        cwd=tmp_path,
+        csv_path=csv,
+        thread_id="thr-1",
+        checkpointer=MagicMock(),
+        console=MagicMock(),
+    )
+    backend = MagicMock()
+    terminate = AsyncMock()
+    from runtime.workspace import SandboxResources
+
+    resources = SandboxResources(backend=backend, terminate=terminate)
+
+    with (
+        patch(
+            "cli.provision_workspace",
+            new=AsyncMock(return_value=(resources, tmp_path / "m")),
+        ),
+        patch("cli.create_analytics_agent", side_effect=RuntimeError("build failed")),
+    ):
+        await run_agent_turn(session, "go")
+
+    terminate.assert_awaited_once()
+
+
+async def test_run_agent_turn_terminates_sandbox_when_astream_fails(
+    tmp_path: pathlib.Path,
+) -> None:
+    """If astream throws after the middleware was attached, terminate is still invoked."""
+    csv = tmp_path / "data.csv"
+    csv.write_text("a,b\n1,2\n")
+    session = Session(
+        cwd=tmp_path,
+        csv_path=csv,
+        thread_id="thr-1",
+        checkpointer=MagicMock(),
+        console=MagicMock(),
+    )
+
+    async def boom(_inputs, _config):  # noqa: ANN001
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    fake_graph = MagicMock()
+    fake_graph.astream = boom
+    backend = MagicMock()
+    terminate = AsyncMock()
+    from runtime.workspace import SandboxResources
+
+    resources = SandboxResources(backend=backend, terminate=terminate)
+
+    with (
+        patch(
+            "cli.provision_workspace",
+            new=AsyncMock(return_value=(resources, tmp_path / "m")),
+        ),
+        patch("cli.create_analytics_agent", return_value=fake_graph),
+    ):
+        await run_agent_turn(session, "go")
+
+    terminate.assert_awaited_once()
+
+
+async def test_repl_loop_second_ctrl_c_exits(tmp_path: pathlib.Path) -> None:
+    """Two consecutive Ctrl-C presses at the prompt exit the loop."""
+    console = MagicMock()
+    session = Session(
+        cwd=tmp_path,
+        csv_path=None,
+        thread_id="t",
+        checkpointer=MagicMock(),
+        console=console,
+    )
+    fake_session = MagicMock()
+    fake_session.prompt_async = AsyncMock(side_effect=[KeyboardInterrupt, KeyboardInterrupt])
+    with patch("cli.PromptSession", return_value=fake_session):
+        await repl_loop(session)
+
+
+async def test_repl_loop_ctrl_c_counter_resets_after_input(tmp_path: pathlib.Path) -> None:
+    """A successful input between Ctrl-C presses resets the exit counter."""
+    console = MagicMock()
+    session = Session(
+        cwd=tmp_path,
+        csv_path=None,
+        thread_id="t",
+        checkpointer=MagicMock(),
+        console=console,
+    )
+    fake_session = MagicMock()
+    fake_session.prompt_async = AsyncMock(
+        side_effect=[KeyboardInterrupt, "/help", KeyboardInterrupt, EOFError]
+    )
+    with patch("cli.PromptSession", return_value=fake_session):
+        await repl_loop(session)
+
+
+async def test_repl_loop_handles_cancelled_turn(tmp_path: pathlib.Path) -> None:
+    """A cancelled in-flight turn returns to the prompt instead of killing the REPL."""
+    csv = tmp_path / "d.csv"
+    csv.touch()
+    console = MagicMock()
+    session = Session(
+        cwd=tmp_path,
+        csv_path=csv,
+        thread_id="t",
+        checkpointer=MagicMock(),
+        console=console,
+    )
+    fake_session = MagicMock()
+    fake_session.prompt_async = AsyncMock(side_effect=["do it", EOFError])
+    with (
+        patch("cli.PromptSession", return_value=fake_session),
+        patch("cli.run_agent_turn", new=AsyncMock(side_effect=asyncio.CancelledError)),
+    ):
+        await repl_loop(session)
+    rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
+    assert "cancel" in rendered.lower()
+
+
+async def test_repl_loop_surfaces_malformed_slash_input(tmp_path: pathlib.Path) -> None:
+    """Malformed quoting in a slash command is surfaced; the loop continues."""
+    console = MagicMock()
+    session = Session(
+        cwd=tmp_path,
+        csv_path=None,
+        thread_id="t",
+        checkpointer=MagicMock(),
+        console=console,
+    )
+    fake_session = MagicMock()
+    fake_session.prompt_async = AsyncMock(side_effect=['/csv "unterminated', "/exit"])
+    with patch("cli.PromptSession", return_value=fake_session):
+        await repl_loop(session)
+    rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
+    assert "malformed" in rendered.lower()
