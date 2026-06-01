@@ -431,19 +431,6 @@ async def run_agent_turn(session: Session, user_text: str) -> None:
 
                         session.console.print("=" * 50)
 
-            # if "model" in chunk:
-            #     msg = chunk["model"]["messages"][-1]
-            #     if msg.content:
-            #         session.console.print(f"[dim]{msg.name or 'agent'}:[/dim] {msg.content}")
-            # elif "tools" in chunk:
-            #     msg = chunk["tools"]["messages"][-1]
-            #     if msg.content:
-            #         session.console.print(
-            #             f"[italic]{msg.name or 'agent'}:[/italic] {msg.content[:150]}..."
-            #         )
-            # else:
-            #     print(chunk)
-
     except asyncio.CancelledError:
         if sandbox_resources is not None:
             with contextlib.suppress(Exception):
