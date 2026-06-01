@@ -30,10 +30,10 @@ from langchain_modal import ModalSandbox
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
-from agent_middleware import SandboxLifecycleMiddleware
-from config import get_model, get_model_small, get_settings
-from runtime.workspace import provision_workspace
-from subagents import get_subagents
+from ada.agent_middleware import SandboxLifecycleMiddleware
+from ada.config import get_model, get_model_small, get_settings
+from ada.runtime.workspace import provision_workspace
+from ada.subagents import get_subagents
 
 # Cached schema-only graph reused for every Studio read call
 # (assistants.read, threads.read, threads.update). The topology cannot change
@@ -163,7 +163,7 @@ report.md, or both.""",
             default=backend,
             routes={
                 "/skills/": FilesystemBackend(
-                    root_dir=str(pathlib.Path(__file__).resolve().parent / "skills"),
+                    root_dir=str(pathlib.Path(__file__).resolve().parent.parent / "skills"),
                     virtual_mode=True,
                 ),
             },

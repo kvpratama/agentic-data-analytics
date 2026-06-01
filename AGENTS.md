@@ -22,20 +22,21 @@ All subagents share a single Modal sandbox (ephemeral microVM) per turn, coordin
 
 ## Project Structure
 
-- `agent.py`: LangGraph factory (`make_graph`) and orchestrator (`create_analytics_agent`).
-- `agent_test.py`: Unit tests for agent.
-- `subagents.py`: Subagent definitions (profiler, cleaner, analyst).
-- `cli.py`: CLI entrypoint (`ada` command — interactive REPL and one-shot mode).
-- `cli_test.py`: Unit tests for CLI.
-- `agent_middleware.py`: `SandboxLifecycleMiddleware` — mirrors `/workspace/` artifacts and terminates sandboxes.
-- `agent_middleware_test.py`: Unit tests for middleware.
-- `config.py`: Centralized configuration (`Settings`) and model initialization (`get_model`).
-- `config_test.py`: Unit tests for Settings.
-- `runtime/`: Modal sandbox runtime helpers and workspace logic.
-  - `modal_runtime.py`: Sandbox image build, seeding, and artifact download.
-  - `modal_runtime_test.py`: Unit tests for sandbox runtime.
-  - `workspace.py`: Workspace mirroring and sandbox provisioning (`provision_workspace`).
-  - `workspace_test.py`: Unit tests for workspace provisioning.
+- `ada/`: Main Python package directory
+  - `agent.py`: LangGraph factory (`make_graph`) and orchestrator (`create_analytics_agent`).
+  - `agent_test.py`: Unit tests for agent.
+  - `subagents.py`: Subagent definitions (profiler, cleaner, analyst).
+  - `cli.py`: CLI entrypoint (`ada` command — interactive REPL and one-shot mode).
+  - `cli_test.py`: Unit tests for CLI.
+  - `agent_middleware.py`: `SandboxLifecycleMiddleware` — mirrors `/workspace/` artifacts and terminates sandboxes.
+  - `agent_middleware_test.py`: Unit tests for middleware.
+  - `config.py`: Centralized configuration (`Settings`) and model initialization (`get_model`).
+  - `config_test.py`: Unit tests for Settings.
+  - `runtime/`: Modal sandbox runtime helpers and workspace logic.
+    - `modal_runtime.py`: Sandbox image build, seeding, and artifact download.
+    - `modal_runtime_test.py`: Unit tests for sandbox runtime.
+    - `workspace.py`: Workspace mirroring and sandbox provisioning (`provision_workspace`).
+    - `workspace_test.py`: Unit tests for workspace provisioning.
 - `skills/`: Domain-specific `SKILL.md` files for profiler, cleaner, analyst, and orchestrator roles.
 - `workspace/`: Gitignored, host-side per-thread artifact mirrors.
 - `dataset/`: Gitignored, CSV files downloaded on demand.

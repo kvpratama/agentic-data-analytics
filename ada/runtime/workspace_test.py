@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_modal import ModalSandbox
 
-from config import Settings
-from runtime.workspace import (
+from ada.config import Settings
+from ada.runtime.workspace import (
     SandboxResources,
     bootstrap_mirror,
     create_sandbox,
@@ -42,7 +42,7 @@ def test_bootstrap_mirror_copies_dataset_once(tmp_path: pathlib.Path) -> None:
 
 def test_get_mirror_root(tmp_path: pathlib.Path) -> None:
     """get_mirror_root generates a safe path under workspace/."""
-    with patch("runtime.workspace._project_root", return_value=tmp_path):
+    with patch("ada.runtime.workspace._project_root", return_value=tmp_path):
         root = get_mirror_root("dataset", "thread-123")
     assert root == tmp_path / "workspace" / "dataset_thread-123"
 
@@ -67,14 +67,14 @@ async def test_create_sandbox_creates_modal_sandbox() -> None:
     app = MagicMock(name="App")
 
     with (
-        patch("runtime.workspace.get_settings", return_value=settings),
+        patch("ada.runtime.workspace.get_settings", return_value=settings),
         patch(
-            "runtime.workspace.modal.App.lookup.aio", new=AsyncMock(return_value=app)
+            "ada.runtime.workspace.modal.App.lookup.aio", new=AsyncMock(return_value=app)
         ) as mock_app,
         patch(
-            "runtime.workspace.modal.Sandbox.create.aio", new=AsyncMock(return_value=sandbox)
+            "ada.runtime.workspace.modal.Sandbox.create.aio", new=AsyncMock(return_value=sandbox)
         ) as mock_create,
-        patch("runtime.workspace.build_image", return_value="fake_image"),
+        patch("ada.runtime.workspace.build_image", return_value="fake_image"),
     ):
         resources = await create_sandbox("thread-1")
 
@@ -102,10 +102,12 @@ async def test_provision_workspace_creates_fresh_sandbox_and_seeds_first_turn(
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
-        patch("runtime.workspace._project_root", return_value=tmp_path),
-        patch("runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
-        patch("runtime.workspace.create_sandbox", new=AsyncMock(return_value=resources)) as create,
-        patch("runtime.workspace.seed_sandbox", new=AsyncMock()) as seed,
+        patch("ada.runtime.workspace._project_root", return_value=tmp_path),
+        patch("ada.runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
+        patch(
+            "ada.runtime.workspace.create_sandbox", new=AsyncMock(return_value=resources)
+        ) as create,
+        patch("ada.runtime.workspace.seed_sandbox", new=AsyncMock()) as seed,
     ):
         res, mirror_root = await provision_workspace("input", "thread-1", csv)
 
@@ -128,11 +130,11 @@ async def test_provision_workspace_terminates_sandbox_if_seeding_fails(
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
-        patch("runtime.workspace._project_root", return_value=tmp_path),
-        patch("runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
-        patch("runtime.workspace.create_sandbox", new=AsyncMock(return_value=resources)),
+        patch("ada.runtime.workspace._project_root", return_value=tmp_path),
+        patch("ada.runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
+        patch("ada.runtime.workspace.create_sandbox", new=AsyncMock(return_value=resources)),
         patch(
-            "runtime.workspace.seed_sandbox",
+            "ada.runtime.workspace.seed_sandbox",
             new=AsyncMock(side_effect=RuntimeError("seed failed")),
         ),
     ):
@@ -161,10 +163,12 @@ async def test_provision_workspace_reuploads_existing_mirror_on_followup(
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
-        patch("runtime.workspace._project_root", return_value=tmp_path),
-        patch("runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
-        patch("runtime.workspace.create_sandbox", new=AsyncMock(return_value=resources)) as create,
-        patch("runtime.workspace.seed_sandbox", new=AsyncMock()) as seed,
+        patch("ada.runtime.workspace._project_root", return_value=tmp_path),
+        patch("ada.runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
+        patch(
+            "ada.runtime.workspace.create_sandbox", new=AsyncMock(return_value=resources)
+        ) as create,
+        patch("ada.runtime.workspace.seed_sandbox", new=AsyncMock()) as seed,
     ):
         await provision_workspace("input", "thread-1", csv)
 

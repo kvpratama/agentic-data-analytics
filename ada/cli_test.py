@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from rich.console import Console as RealConsole
 
-from cli import (
+from ada.cli import (
     ExitRepl,
     Session,
     SlashError,
@@ -77,7 +77,7 @@ def test_choose_csv_uses_picker_for_multiple(tmp_path: pathlib.Path) -> None:
     b.touch()
     console = MagicMock()
 
-    with patch("cli.input", return_value="2", create=True):
+    with patch("ada.cli.input", return_value="2", create=True):
         result = choose_csv([a, b], console=console)
 
     assert result == b
@@ -91,7 +91,7 @@ def test_choose_csv_picker_rejects_out_of_range(tmp_path: pathlib.Path) -> None:
     b.touch()
     console = MagicMock()
 
-    with patch("cli.input", side_effect=["9", "0", "abc", "1"], create=True):
+    with patch("ada.cli.input", side_effect=["9", "0", "abc", "1"], create=True):
         result = choose_csv([a, b], console=console)
 
     assert result == a
@@ -176,7 +176,7 @@ def test_list_thread_dirs_ignores_files(tmp_path: pathlib.Path) -> None:
 def test_open_report_missing_prints_notice(tmp_path: pathlib.Path) -> None:
     """When the report does not exist, a notice is printed and no command runs."""
     console = MagicMock()
-    with patch("cli.subprocess.run") as run:
+    with patch("ada.cli.subprocess.run") as run:
         open_report(tmp_path / "absent.md", console=console)
     run.assert_not_called()
     console.print.assert_called_once()
@@ -189,8 +189,8 @@ def test_open_report_linux_uses_xdg_open(tmp_path: pathlib.Path) -> None:
     report.write_text("# r")
     console = MagicMock()
     with (
-        patch("cli.sys.platform", "linux"),
-        patch("cli.subprocess.run") as run,
+        patch("ada.cli.sys.platform", "linux"),
+        patch("ada.cli.subprocess.run") as run,
     ):
         open_report(report, console=console)
     run.assert_called_once_with(["xdg-open", str(report)], check=False)
@@ -202,8 +202,8 @@ def test_open_report_macos_uses_open(tmp_path: pathlib.Path) -> None:
     report.write_text("# r")
     console = MagicMock()
     with (
-        patch("cli.sys.platform", "darwin"),
-        patch("cli.subprocess.run") as run,
+        patch("ada.cli.sys.platform", "darwin"),
+        patch("ada.cli.subprocess.run") as run,
     ):
         open_report(report, console=console)
     run.assert_called_once_with(["open", str(report)], check=False)
@@ -215,8 +215,8 @@ def test_open_report_handles_missing_opener_binary(tmp_path: pathlib.Path) -> No
     report.write_text("# r")
     console = MagicMock()
     with (
-        patch("cli.sys.platform", "linux"),
-        patch("cli.subprocess.run", side_effect=FileNotFoundError("xdg-open")),
+        patch("ada.cli.sys.platform", "linux"),
+        patch("ada.cli.subprocess.run", side_effect=FileNotFoundError("xdg-open")),
     ):
         open_report(report, console=console)
     rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
@@ -230,7 +230,7 @@ def test_open_report_windows_uses_startfile(tmp_path: pathlib.Path) -> None:
     console = MagicMock()
     fake_startfile = MagicMock()
     with (
-        patch("cli.sys.platform", "win32"),
+        patch("ada.cli.sys.platform", "win32"),
         patch.object(os, "startfile", fake_startfile, create=True),
     ):
         open_report(report, console=console)
@@ -404,7 +404,7 @@ async def test_dispatch_resume_with_id_jumps_directly(tmp_path: pathlib.Path) ->
         checkpointer=MagicMock(),
         console=MagicMock(),
     )
-    with patch("cli.workspace_root", return_value=workspace):
+    with patch("ada.cli.workspace_root", return_value=workspace):
         await dispatch_slash("resume", ["abc-1"], session)
     assert session.thread_id == "abc-1"
 
@@ -423,7 +423,7 @@ async def test_dispatch_resume_unknown_id_errors(tmp_path: pathlib.Path) -> None
         console=MagicMock(),
     )
     with (
-        patch("cli.workspace_root", return_value=workspace),
+        patch("ada.cli.workspace_root", return_value=workspace),
         pytest.raises(SlashError, match="no thread"),
     ):
         await dispatch_slash("resume", ["nope"], session)
@@ -445,8 +445,8 @@ async def test_dispatch_resume_no_args_picks_from_list(tmp_path: pathlib.Path) -
         console=MagicMock(),
     )
     with (
-        patch("cli.workspace_root", return_value=workspace),
-        patch("cli.input", return_value="1", create=True),
+        patch("ada.cli.workspace_root", return_value=workspace),
+        patch("ada.cli.input", return_value="1", create=True),
     ):
         await dispatch_slash("resume", [], session)
     assert session.thread_id in {"one", "two"}
@@ -482,8 +482,8 @@ async def test_dispatch_open_report_with_csv(tmp_path: pathlib.Path) -> None:
         console=MagicMock(),
     )
     with (
-        patch("cli.workspace_root", return_value=workspace),
-        patch("cli.open_report") as opener,
+        patch("ada.cli.workspace_root", return_value=workspace),
+        patch("ada.cli.open_report") as opener,
     ):
         await dispatch_slash("open", ["report"], session)
     opener.assert_called_once_with(mirror / "report.md", console=session.console)
@@ -553,17 +553,17 @@ async def test_run_agent_turn_streams_chunks(tmp_path: pathlib.Path) -> None:
     fake_graph.astream = fake_astream
     backend = MagicMock()
     terminate = AsyncMock()
-    from runtime.workspace import SandboxResources
+    from ada.runtime.workspace import SandboxResources
 
     resources = SandboxResources(backend=backend, terminate=terminate)
     mirror_root = tmp_path / "mirror"
 
     with (
         patch(
-            "cli.provision_workspace",
+            "ada.cli.provision_workspace",
             new=AsyncMock(return_value=(resources, mirror_root)),
         ) as provision,
-        patch("cli.create_analytics_agent", return_value=fake_graph) as create,
+        patch("ada.cli.create_analytics_agent", return_value=fake_graph) as create,
     ):
         await run_agent_turn(session, "summarize the data")
 
@@ -599,13 +599,15 @@ async def test_run_agent_turn_catches_agent_errors(tmp_path: pathlib.Path) -> No
     fake_graph.astream = boom
     backend = MagicMock()
     terminate = AsyncMock()
-    from runtime.workspace import SandboxResources
+    from ada.runtime.workspace import SandboxResources
 
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
-        patch("cli.provision_workspace", new=AsyncMock(return_value=(resources, tmp_path / "m"))),
-        patch("cli.create_analytics_agent", return_value=fake_graph),
+        patch(
+            "ada.cli.provision_workspace", new=AsyncMock(return_value=(resources, tmp_path / "m"))
+        ),
+        patch("ada.cli.create_analytics_agent", return_value=fake_graph),
     ):
         await run_agent_turn(session, "x")
 
@@ -624,7 +626,7 @@ async def test_repl_loop_exits_on_eof(tmp_path: pathlib.Path) -> None:
     )
     fake_session = MagicMock()
     fake_session.prompt_async = AsyncMock(side_effect=EOFError)
-    with patch("cli.PromptSession", return_value=fake_session):
+    with patch("ada.cli.PromptSession", return_value=fake_session):
         await repl_loop(session)
 
 
@@ -640,7 +642,7 @@ async def test_repl_loop_runs_slash_then_exit(tmp_path: pathlib.Path) -> None:
     )
     fake_session = MagicMock()
     fake_session.prompt_async = AsyncMock(side_effect=["/help", "/exit"])
-    with patch("cli.PromptSession", return_value=fake_session):
+    with patch("ada.cli.PromptSession", return_value=fake_session):
         await repl_loop(session)
     assert console.print.called
 
@@ -659,8 +661,8 @@ async def test_repl_loop_routes_plain_text_to_agent(tmp_path: pathlib.Path) -> N
     fake_session = MagicMock()
     fake_session.prompt_async = AsyncMock(side_effect=["analyze this", EOFError])
     with (
-        patch("cli.PromptSession", return_value=fake_session),
-        patch("cli.run_agent_turn", new=AsyncMock()) as turn,
+        patch("ada.cli.PromptSession", return_value=fake_session),
+        patch("ada.cli.run_agent_turn", new=AsyncMock()) as turn,
     ):
         await repl_loop(session)
     turn.assert_awaited_once_with(session, "analyze this")
@@ -678,7 +680,7 @@ async def test_repl_loop_handles_keyboard_interrupt(tmp_path: pathlib.Path) -> N
     )
     fake_session = MagicMock()
     fake_session.prompt_async = AsyncMock(side_effect=[KeyboardInterrupt, EOFError])
-    with patch("cli.PromptSession", return_value=fake_session):
+    with patch("ada.cli.PromptSession", return_value=fake_session):
         await repl_loop(session)
     rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
     assert "exit" in rendered.lower() or "ctrl" in rendered.lower()
@@ -696,7 +698,7 @@ async def test_repl_loop_surfaces_slash_errors(tmp_path: pathlib.Path) -> None:
     )
     fake_session = MagicMock()
     fake_session.prompt_async = AsyncMock(side_effect=["/csv", "/exit"])
-    with patch("cli.PromptSession", return_value=fake_session):
+    with patch("ada.cli.PromptSession", return_value=fake_session):
         await repl_loop(session)
     rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
     assert "usage" in rendered.lower()
@@ -735,11 +737,11 @@ async def test_amain_interactive_calls_repl(tmp_path: pathlib.Path) -> None:
         yield fake_checkpointer
 
     with (
-        patch("cli.Path.cwd", return_value=tmp_path),
-        patch("cli.load_environment") as load_env,
-        patch("cli.AsyncSqliteSaver.from_conn_string", fake_ctx),
-        patch("cli.repl_loop", new=AsyncMock()) as repl,
-        patch("cli.run_agent_turn", new=AsyncMock()) as turn,
+        patch("ada.cli.Path.cwd", return_value=tmp_path),
+        patch("ada.cli.load_environment") as load_env,
+        patch("ada.cli.AsyncSqliteSaver.from_conn_string", fake_ctx),
+        patch("ada.cli.repl_loop", new=AsyncMock()) as repl,
+        patch("ada.cli.run_agent_turn", new=AsyncMock()) as turn,
     ):
         await _amain(args)
 
@@ -759,10 +761,10 @@ async def test_amain_one_shot_calls_run_agent_turn(tmp_path: pathlib.Path) -> No
         yield MagicMock()
 
     with (
-        patch("cli.load_environment"),
-        patch("cli.AsyncSqliteSaver.from_conn_string", fake_ctx),
-        patch("cli.repl_loop", new=AsyncMock()) as repl,
-        patch("cli.run_agent_turn", new=AsyncMock()) as turn,
+        patch("ada.cli.load_environment"),
+        patch("ada.cli.AsyncSqliteSaver.from_conn_string", fake_ctx),
+        patch("ada.cli.repl_loop", new=AsyncMock()) as repl,
+        patch("ada.cli.run_agent_turn", new=AsyncMock()) as turn,
     ):
         await _amain(args)
 
@@ -783,10 +785,10 @@ async def test_amain_legacy_positional_one_shot_calls_run_agent_turn(
         yield MagicMock()
 
     with (
-        patch("cli.load_environment"),
-        patch("cli.AsyncSqliteSaver.from_conn_string", fake_ctx),
-        patch("cli.repl_loop", new=AsyncMock()) as repl,
-        patch("cli.run_agent_turn", new=AsyncMock()) as turn,
+        patch("ada.cli.load_environment"),
+        patch("ada.cli.AsyncSqliteSaver.from_conn_string", fake_ctx),
+        patch("ada.cli.repl_loop", new=AsyncMock()) as repl,
+        patch("ada.cli.run_agent_turn", new=AsyncMock()) as turn,
     ):
         await _amain(args)
 
@@ -798,7 +800,7 @@ async def test_amain_one_shot_requires_csv_when_prompt_given() -> None:
     """-p without --csv exits with an error before opening anything."""
     args = build_arg_parser().parse_args(["-p", "hi"])
     with (
-        patch("cli.load_environment"),
+        patch("ada.cli.load_environment"),
         pytest.raises(SystemExit),
     ):
         await _amain(args)
@@ -808,7 +810,7 @@ async def test_amain_csv_without_prompt_errors() -> None:
     """--csv without -p exits because the flag pair only describes one-shot mode."""
     args = build_arg_parser().parse_args(["--csv", "data.csv"])
     with (
-        patch("cli.load_environment"),
+        patch("ada.cli.load_environment"),
         pytest.raises(SystemExit),
     ):
         await _amain(args)
@@ -858,16 +860,16 @@ async def test_run_agent_turn_sanitizes_stem_with_spaces(tmp_path: pathlib.Path)
     fake_graph.astream = empty_stream
     backend = MagicMock()
     terminate = AsyncMock()
-    from runtime.workspace import SandboxResources
+    from ada.runtime.workspace import SandboxResources
 
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
         patch(
-            "cli.provision_workspace",
+            "ada.cli.provision_workspace",
             new=AsyncMock(return_value=(resources, tmp_path / "m")),
         ) as provision,
-        patch("cli.create_analytics_agent", return_value=fake_graph),
+        patch("ada.cli.create_analytics_agent", return_value=fake_graph),
     ):
         await run_agent_turn(session, "go")
 
@@ -887,7 +889,7 @@ async def test_run_agent_turn_catches_provisioning_errors(tmp_path: pathlib.Path
         console=console,
     )
     with patch(
-        "cli.provision_workspace",
+        "ada.cli.provision_workspace",
         new=AsyncMock(side_effect=RuntimeError("modal down")),
     ):
         await run_agent_turn(session, "go")
@@ -910,16 +912,16 @@ async def test_run_agent_turn_terminates_sandbox_when_graph_creation_fails(
     )
     backend = MagicMock()
     terminate = AsyncMock()
-    from runtime.workspace import SandboxResources
+    from ada.runtime.workspace import SandboxResources
 
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
         patch(
-            "cli.provision_workspace",
+            "ada.cli.provision_workspace",
             new=AsyncMock(return_value=(resources, tmp_path / "m")),
         ),
-        patch("cli.create_analytics_agent", side_effect=RuntimeError("build failed")),
+        patch("ada.cli.create_analytics_agent", side_effect=RuntimeError("build failed")),
     ):
         await run_agent_turn(session, "go")
 
@@ -948,16 +950,16 @@ async def test_run_agent_turn_terminates_sandbox_when_astream_fails(
     fake_graph.astream = boom
     backend = MagicMock()
     terminate = AsyncMock()
-    from runtime.workspace import SandboxResources
+    from ada.runtime.workspace import SandboxResources
 
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
         patch(
-            "cli.provision_workspace",
+            "ada.cli.provision_workspace",
             new=AsyncMock(return_value=(resources, tmp_path / "m")),
         ),
-        patch("cli.create_analytics_agent", return_value=fake_graph),
+        patch("ada.cli.create_analytics_agent", return_value=fake_graph),
     ):
         await run_agent_turn(session, "go")
 
@@ -987,16 +989,16 @@ async def test_run_agent_turn_reraises_unexpected_exceptions_after_cleanup(
     fake_graph.astream = boom
     backend = MagicMock()
     terminate = AsyncMock()
-    from runtime.workspace import SandboxResources
+    from ada.runtime.workspace import SandboxResources
 
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
         patch(
-            "cli.provision_workspace",
+            "ada.cli.provision_workspace",
             new=AsyncMock(return_value=(resources, tmp_path / "m")),
         ),
-        patch("cli.create_analytics_agent", return_value=fake_graph),
+        patch("ada.cli.create_analytics_agent", return_value=fake_graph),
         pytest.raises(LookupError, match="surprise"),
     ):
         await run_agent_turn(session, "go")
@@ -1018,7 +1020,7 @@ async def test_repl_loop_second_ctrl_c_exits(tmp_path: pathlib.Path) -> None:
     )
     fake_session = MagicMock()
     fake_session.prompt_async = AsyncMock(side_effect=[KeyboardInterrupt, KeyboardInterrupt])
-    with patch("cli.PromptSession", return_value=fake_session):
+    with patch("ada.cli.PromptSession", return_value=fake_session):
         await repl_loop(session)
 
 
@@ -1036,7 +1038,7 @@ async def test_repl_loop_ctrl_c_counter_resets_after_input(tmp_path: pathlib.Pat
     fake_session.prompt_async = AsyncMock(
         side_effect=[KeyboardInterrupt, "/help", KeyboardInterrupt, EOFError]
     )
-    with patch("cli.PromptSession", return_value=fake_session):
+    with patch("ada.cli.PromptSession", return_value=fake_session):
         await repl_loop(session)
 
 
@@ -1055,8 +1057,8 @@ async def test_repl_loop_handles_cancelled_turn(tmp_path: pathlib.Path) -> None:
     fake_session = MagicMock()
     fake_session.prompt_async = AsyncMock(side_effect=["do it", EOFError])
     with (
-        patch("cli.PromptSession", return_value=fake_session),
-        patch("cli.run_agent_turn", new=AsyncMock(side_effect=asyncio.CancelledError)),
+        patch("ada.cli.PromptSession", return_value=fake_session),
+        patch("ada.cli.run_agent_turn", new=AsyncMock(side_effect=asyncio.CancelledError)),
     ):
         await repl_loop(session)
     rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
@@ -1075,7 +1077,7 @@ async def test_repl_loop_surfaces_malformed_slash_input(tmp_path: pathlib.Path) 
     )
     fake_session = MagicMock()
     fake_session.prompt_async = AsyncMock(side_effect=['/csv "unterminated', "/exit"])
-    with patch("cli.PromptSession", return_value=fake_session):
+    with patch("ada.cli.PromptSession", return_value=fake_session):
         await repl_loop(session)
     rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
     assert "malformed" in rendered.lower()

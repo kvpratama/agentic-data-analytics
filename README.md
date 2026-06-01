@@ -168,7 +168,7 @@ The repository includes `langgraph.json`, exposing the graph as `analytics`:
 {
   "dependencies": ["."],
   "graphs": {
-    "analytics": "./agent.py:make_graph"
+    "analytics": "./ada/agent.py:make_graph"
   },
   "env": ".env"
 }
@@ -242,16 +242,17 @@ uv run ada --csv dataset/diamonds.csv \
 
 ```text
 agentic-data-analytics/
-├── agent.py                          ← LangGraph factory and orchestrator
-├── subagents.py                      ← Subagent definitions (profiler, cleaner, analyst)
-├── cli.py                            ← CLI entrypoint
-├── agent_middleware.py               ← mirrors /workspace artifacts and terminates sandboxes
-├── config.py                         ← Settings + get_model() (multi-provider + Modal settings)
-├── config_test.py                    ← unit tests for Settings
-├── runtime/
-│   ├── modal_runtime.py              ← sandbox build, seed, and download helpers
-│   ├── modal_runtime_test.py         ← unit tests for sandbox runtime operations
-│   └── workspace.py                  ← workspace mirroring and sandbox provisioning logic
+├── ada/
+│   ├── agent.py                      ← LangGraph factory and orchestrator
+│   ├── subagents.py                  ← Subagent definitions (profiler, cleaner, analyst)
+│   ├── cli.py                        ← CLI entrypoint
+│   ├── agent_middleware.py           ← mirrors /workspace artifacts and terminates sandboxes
+│   ├── config.py                     ← Settings + get_model() (multi-provider + Modal settings)
+│   ├── config_test.py                ← unit tests for Settings
+│   └── runtime/
+│       ├── modal_runtime.py          ← sandbox build, seed, and download helpers
+│       ├── modal_runtime_test.py     ← unit tests for sandbox runtime operations
+│       └── workspace.py              ← workspace mirroring and sandbox provisioning logic
 ├── skills/
 │   ├── profiler_skills/profiler/SKILL.md
 │   ├── cleaner_skills/cleaner/SKILL.md

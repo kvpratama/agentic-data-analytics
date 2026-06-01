@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_middleware import SandboxLifecycleMiddleware
+from ada.agent_middleware import SandboxLifecycleMiddleware
 
 
 def _backend_double() -> MagicMock:

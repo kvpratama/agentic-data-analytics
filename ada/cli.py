@@ -24,9 +24,9 @@ from prompt_toolkit import PromptSession
 from rich.console import Console
 from rich.table import Table
 
-from agent import create_analytics_agent
-from config import load_environment
-from runtime.workspace import provision_workspace
+from ada.agent import create_analytics_agent
+from ada.config import load_environment
+from ada.runtime.workspace import provision_workspace
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -169,7 +169,7 @@ def open_report(report_path: pathlib.Path, *, console: Console) -> None:
 
 def workspace_root() -> pathlib.Path:
     """Return the host-side ``workspace/`` directory."""
-    return pathlib.Path(__file__).resolve().parent / "workspace"
+    return pathlib.Path(__file__).resolve().parent.parent / "workspace"
 
 
 _UNSAFE_STEM_CHARS = re.compile(r"[^A-Za-z0-9._-]")

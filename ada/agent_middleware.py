@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from langchain.agents.middleware import AgentMiddleware
 from langchain_modal import ModalSandbox
 
-from runtime.modal_runtime import download_artifacts
+from ada.runtime.modal_runtime import download_artifacts
 
 
 class SandboxLifecycleMiddleware(AgentMiddleware):
