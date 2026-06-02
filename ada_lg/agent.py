@@ -73,7 +73,8 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
         stem = str(configurable["stem"])
 
         sandbox_resources, mirror_root = await provision_workspace(stem, thread_id, csv_path)
-        return create_analytics_agent(
+        return await asyncio.to_thread(
+            create_analytics_agent,
             sandbox_resources.backend,
             mirror_root=mirror_root,
             terminate_sandbox=sandbox_resources.terminate,
@@ -81,7 +82,11 @@ async def make_graph(config: RunnableConfig) -> CompiledStateGraph:
 
     global _SCHEMA_GRAPH_CACHE
     if _SCHEMA_GRAPH_CACHE is None:
-        _SCHEMA_GRAPH_CACHE = create_analytics_agent(StateBackend(), mirror_root=None)
+        _SCHEMA_GRAPH_CACHE = await asyncio.to_thread(
+            create_analytics_agent,
+            StateBackend(),
+            mirror_root=None,
+        )
     return _SCHEMA_GRAPH_CACHE
 
 

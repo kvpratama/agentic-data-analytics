@@ -102,6 +102,7 @@ async def test_make_graph_for_studio_introspection_does_not_create_sandbox(
     monkeypatch.setattr("ada_lg.agent._SCHEMA_GRAPH_CACHE", None)
 
     with (
+        patch("ada_lg.agent.asyncio.to_thread", side_effect=_run_to_thread_sync) as to_thread,
         patch("ada_lg.agent.provision_workspace", new=AsyncMock()) as provision,
         patch("ada_lg.agent.create_analytics_agent", return_value=graph) as create_agent,
     ):
@@ -112,6 +113,7 @@ async def test_make_graph_for_studio_introspection_does_not_create_sandbox(
     assert result2 is graph
     provision.assert_not_awaited()
     create_agent.assert_called_once()
+    assert to_thread.call_args_list[0].args[0] is create_agent
     assert isinstance(create_agent.call_args.args[0], StateBackend)
     assert create_agent.call_args.kwargs == {"mirror_root": None}
 
@@ -145,7 +147,7 @@ async def test_make_graph_creates_sandbox_and_graph(tmp_path: pathlib.Path) -> N
     mirror_root = tmp_path / "workspace" / "input_thread-1"
 
     with (
-        patch("ada_lg.agent.asyncio.to_thread", side_effect=_run_to_thread_sync),
+        patch("ada_lg.agent.asyncio.to_thread", side_effect=_run_to_thread_sync) as to_thread,
         patch(
             "ada_lg.agent.provision_workspace", new=AsyncMock(return_value=(resources, mirror_root))
         ) as provision,
@@ -163,6 +165,7 @@ async def test_make_graph_creates_sandbox_and_graph(tmp_path: pathlib.Path) -> N
         )
 
     assert result is graph
+    assert to_thread.call_args_list[-1].args[0] is create_agent
     provision.assert_awaited_once_with("input", "thread-1", csv)
     create_agent.assert_called_once_with(
         backend,
