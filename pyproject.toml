@@ -35,11 +35,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["ada"]
-include = ["ada/**/*.py", "skills/**", "langgraph.json"]
+packages = ["ada", "ada_lg"]
+include = ["ada/**/*.py", "ada_lg/**/*.py", "skills/**", "langgraph.json"]
 
 [project.scripts]
 ada = "ada.cli:main"
+ada-lg = "ada_lg.cli:main"
 
 
 [tool.ruff]
