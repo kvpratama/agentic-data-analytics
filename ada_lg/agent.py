@@ -137,15 +137,12 @@ def create_analytics_agent(
 
     orchestrator_middleware = list(base_middleware)
     if mirror_root is not None:
-        terminator = terminate_sandbox
-        if terminator is None:
-            msg = "create_analytics_agent requires terminate_sandbox with mirror_root"
-            raise ValueError(msg)
+        assert terminate_sandbox is not None  # noqa: S101 — validated above
         orchestrator_middleware.append(
             SandboxLifecycleMiddleware(
                 backend=cast("ModalSandbox", backend),
                 mirror_root=mirror_root,
-                terminate=terminator,
+                terminate=terminate_sandbox,
             )
         )
 

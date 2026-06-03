@@ -90,11 +90,7 @@ def build_fs_tools(backend: BackendProtocol) -> list[BaseTool]:
         if result.error:
             return f"Error: {result.error}"
         lines = [
-            f"{item.get('path') or item.get('file')}:"
-            f"{item.get('line') or item.get('line_number')}: "
-            f"{item.get('text') or item.get('line')}"
-            for match in result.matches or []
-            for item in [cast("Mapping[str, object]", match)]
+            f"{match['path']}:{match['line']}: {match['text']}" for match in result.matches or []
         ]
         return "\n".join(lines) if lines else "(no matches)"
 
