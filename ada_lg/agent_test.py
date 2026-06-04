@@ -166,7 +166,7 @@ async def test_make_graph_creates_sandbox_and_graph(tmp_path: pathlib.Path) -> N
 
     assert result is graph
     assert to_thread.call_args_list[-1].args[0] is create_agent
-    provision.assert_awaited_once_with("input", "thread-1", csv)
+    provision.assert_awaited_once_with("input", "thread-1", csv.resolve())
     create_agent.assert_called_once_with(
         backend,
         mirror_root=mirror_root,

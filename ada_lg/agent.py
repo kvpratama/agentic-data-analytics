@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
-import tempfile
 from collections.abc import Awaitable, Callable
 from typing import cast
 
@@ -27,8 +26,6 @@ from ada_lg.lg.agent_factory import build_orchestrator, build_subagent
 from ada_lg.subagents import get_subagent_specs
 
 _SCHEMA_GRAPH_CACHE: CompiledStateGraph | None = None
-
-tempfile.gettempdir()
 
 _ORCHESTRATOR_PROMPT = """\
 You are the Data Analytics Orchestrator. You have an `execute` tool (runs shell
