@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from ada.config import Settings
-
 WORK_RULES = (
     "All dataset files live under '/workspace/'. Use absolute paths: "
     "'/workspace/dataset.csv' (raw, immutable — never overwrite), "
@@ -13,16 +11,13 @@ WORK_RULES = (
 )
 
 
-def get_subagent_specs(settings: Settings) -> list[dict]:
+def get_subagent_specs() -> list[dict]:
     """Return profiler, cleaner, and analyst specifications.
-
-    Args:
-        settings: Settings kept for signature parity with ada.subagents.
 
     Returns:
         Plain dict specs consumed by ada_lg.agent.
     """
-    del settings
+
     return [
         {
             "name": "profiler",

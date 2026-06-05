@@ -144,7 +144,7 @@ def create_analytics_agent(
         )
 
     subagent_graphs: dict[str, CompiledStateGraph] = {}
-    for spec in get_subagent_specs(settings):
+    for spec in get_subagent_specs():
         subagent_graphs[spec["name"]] = build_subagent(
             name=spec["name"],
             system_prompt=spec["system_prompt"],

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 
 from langchain.tools import BaseTool, tool
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph.state import CompiledStateGraph
 
 
 def _message_content_to_text(content: object) -> str:
@@ -25,7 +26,7 @@ def _message_content_to_text(content: object) -> str:
     return str(content)
 
 
-def build_task_tool(subagents: Mapping[str, Any]) -> BaseTool:
+def build_task_tool(subagents: Mapping[str, CompiledStateGraph]) -> BaseTool:
     """Build a task(agent, instruction) tool over a subagent registry.
 
     Args:

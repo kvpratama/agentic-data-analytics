@@ -12,7 +12,7 @@ All subagents share a single Modal sandbox (ephemeral microVM) per turn, coordin
 ## Tech Stack
 
 - **Runtime**: Python 3.12+
-- **Orchestration**: [LangGraph](https://github.com/langchain-ai/langgraph) & [Deep Agents](https://github.com/google-deepmind/deepagents)
+- **Orchestration**: [LangGraph](https://github.com/langchain-ai/langgraph) & [LangChain Deep Agents](https://github.com/langchain-ai/deepagents)
 - **Execution**: `langchain-modal` (`ModalSandbox`) for sandboxed shell execution in ephemeral Modal microVMs
 - **Data Science**: `pandas`, `scipy`, `matplotlib`, `seaborn`
 - **Models**: Anthropic (default), OpenAI, or Google GenAI via LangChain `init_chat_model`
@@ -40,7 +40,6 @@ All subagents share a single Modal sandbox (ephemeral microVM) per turn, coordin
 - `skills/`: Domain-specific `SKILL.md` files for profiler, cleaner, analyst, and orchestrator roles.
 - `workspace/`: Gitignored, host-side per-thread artifact mirrors.
 - `dataset/`: Gitignored, CSV files downloaded on demand.
-- `docs/`: Design specs and implementation plans.
 - `langgraph.json`: LangGraph Studio/API graph entrypoint.
 - `.env.example`: Example environment variable configuration.
 - `.pre-commit-config.yaml`: Pre-commit hooks configuration.
