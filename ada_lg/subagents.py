@@ -6,7 +6,13 @@ from typing import TypedDict
 
 
 class SubagentSpec(TypedDict):
-    """Specification for a subagent."""
+    """Specification for a subagent.
+
+    Attributes:
+        name: The unique identifier/name of the subagent.
+        system_prompt: The system instructions guiding the subagent's execution.
+        skill_dir: The filesystem path to the subagent's specific skill instructions.
+    """
 
     name: str
     system_prompt: str
@@ -26,7 +32,8 @@ def get_subagent_specs() -> list[SubagentSpec]:
     """Return profiler, cleaner, and analyst specifications.
 
     Returns:
-        Plain dict specs consumed by ada_lg.agent.
+        A list of SubagentSpec TypedDicts containing specifications for the
+        profiler, cleaner, and analyst subagents.
     """
 
     return [
