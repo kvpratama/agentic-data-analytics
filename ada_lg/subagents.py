@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TypedDict
+
+
+class SubagentSpec(TypedDict):
+    """Specification for a subagent."""
+
+    name: str
+    system_prompt: str
+    skill_dir: str
+
+
 WORK_RULES = (
     "All dataset files live under '/workspace/'. Use absolute paths: "
     "'/workspace/dataset.csv' (raw, immutable — never overwrite), "
@@ -11,7 +22,7 @@ WORK_RULES = (
 )
 
 
-def get_subagent_specs() -> list[dict]:
+def get_subagent_specs() -> list[SubagentSpec]:
     """Return profiler, cleaner, and analyst specifications.
 
     Returns:
