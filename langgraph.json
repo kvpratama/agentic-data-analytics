@@ -1,7 +1,8 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "analytics": "./ada/agent.py:make_graph"
+    "analytics": "./ada/agent.py:make_graph",
+    "analytics_lg": "./ada_lg/agent.py:make_graph"
   },
   "env": ".env"
 }
