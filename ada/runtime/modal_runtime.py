@@ -35,11 +35,11 @@ def build_image() -> modal.Image:
         A configured ``modal.Image`` ready to pass to ``modal.Sandbox.create``.
     """
     return modal.Image.debian_slim(python_version="3.12").uv_pip_install(
-        "pandas>=3.0",
-        "scipy>=1.17",
-        "matplotlib>=3.10",
-        "seaborn>=0.13",
-        "scikit-learn>=1.8",
+        "matplotlib>=3.11.0",
+        "pandas>=3.0.3",
+        "scikit-learn>=1.9.0",
+        "scipy>=1.18.0",
+        "seaborn>=0.13.2",
     )
 
 

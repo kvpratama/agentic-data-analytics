@@ -37,6 +37,7 @@ class LocalWorkspaceBackend(LocalShellBackend):
             virtual_mode=True,
             timeout=timeout,
             max_output_bytes=max_output_bytes,
+            env={"PATH": str(self.workspace_path / ".." / ".." / ".venv" / "bin")},
         )
 
     def execute(
@@ -50,5 +51,7 @@ class LocalWorkspaceBackend(LocalShellBackend):
 
         # Translate /workspace/ only if it's not preceded by path characters
         # (e.g., avoid overtranslating /etc/workspace/ or ../workspace/)
-        translated = re.sub(r"(?<![a-zA-Z0-9._~-])/workspace/", f"{self.workspace_path}/", command)
+        translated = re.sub(
+            r"(?<![a-zA-Z0-9._~-])/workspace/", f"{self.workspace_path}/workspace/", command
+        )
         return super().execute(translated, timeout=timeout)
