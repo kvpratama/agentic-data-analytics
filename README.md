@@ -1,14 +1,16 @@
 # Agentic Data Analytics
 
-A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview). A single orchestrator coordinates three specialized subagents — **profiler**, **cleaner**, and **analyst** — that execute inside a secure, sandboxed Modal microVM to profile a CSV dataset, fix data quality issues, and produce an insights report with visualizations.
+A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview). A single orchestrator coordinates three specialized subagents — **profiler**, **cleaner**, and **analyst** — that execute inside a sandbox to profile a CSV dataset, fix data quality issues, and produce an insights report with visualizations.
 
 ## What This Example Demonstrates
 
 - **`SubAgentMiddleware`** — three named subagents with distinct system prompts and skills, communicating through the orchestrator via the `task` tool.
-- **Modal Sandbox Isolation** — runs in a secure, isolated microVM using `ModalSandbox` (from `langchain-modal`). The agent cannot escape the container, keeping your host machine protected.
-- **Single `execute` tool surface** — each subagent has the full power of pandas / scipy / matplotlib via one `execute` tool to run commands inside the sandbox container.
+- **Backend auto-detection** — automatically selects between Modal sandbox (when Modal credentials are present) and a local `LocalWorkspaceBackend` (no Modal required), making the tool runnable out of the box for everyone.
+- **Modal Sandbox Isolation** *(optional)* — when Modal credentials are configured, runs in a secure, isolated microVM using `ModalSandbox` (from `langchain-modal`). The agent cannot escape the container, keeping your host machine protected.
+- **Local execution** *(fallback)* — when no Modal credentials are found, runs commands directly on your machine via `LocalShellBackend` with automatic `/workspace/` path translation.
+- **Single `execute` tool surface** — each subagent has the full power of pandas / scipy / matplotlib / scikit-learn via one `execute` tool to run commands.
 - **Skills (progressive disclosure)** — methodology lives in `SKILL.md` files under `skills/`, served through a host filesystem route and loaded on demand.
-- **File-based state handoff** — subagents coordinate within a turn through explicit sandbox files (`/workspace/dataset.csv`, `/workspace/profile.json`, etc.) rather than in-memory kernel variables.
+- **File-based state handoff** — subagents coordinate within a turn through explicit files (`/workspace/dataset.csv`, `/workspace/profile.json`, etc.) rather than in-memory kernel variables.
 - **Thread-scoped follow-ups** — LangGraph Studio/API threads keep chat history, while host-side mirrors under `workspace/<dataset-stem>_<thread_id>/` preserve `/workspace/` artifacts across turns.
 - **Multi-provider model configuration** — swap between Anthropic, OpenAI, or Google with a single `.env` change.
 
@@ -30,24 +32,29 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
                             ▼
               ╭──────────────────────────╮
               │     CompositeBackend     │
-              │ default → ModalSandbox   │
+              │ default → auto-detected  │
               │ /skills → Filesystem     │
               ╰──────┬──────────────┬────╯
-                     │ default      │ /skills
-                     ▼              ▼
-    ╭──────────────────────────╮  ╭─────────────────────────╮
-    │    ModalSandbox          │  │ FilesystemBackend       │
-    │ /workspace/dataset.csv   │  │ local repo skills/      │
-    │ /workspace/profile.json  │  │ read-only route         │
-    ╰─────────┬────────────────╯  ╰─────────────────────────╯
-              │ seeded/downloaded each turn
-              ▼
+                     │
+           ┌─────────┴──────────┐
+           ▼                    ▼
+╭─────────────────────╮  ╭─────────────────────╮
+│   ModalSandbox      │  │ LocalWorkspaceBackend│
+│ (Modal credentials  │  │ (no Modal — local    │
+│  present)           │  │  shell execution)    │
+│ /workspace/dataset  │  │ /workspace/ → real   │
+│   ..seeded from..   │  │   path translation   │
+╰─────────┬───────────╯  ╰──────────┬───────────╯
+           │                         │
+           ▼                         ▼
         ╭───────────────────────────────╮
         │ workspace/<stem>_<thread_id>/ │  ← thread-scoped persistence
         ╰───────────────────────────────╯
 ```
 
-The `CompositeBackend` routes ordinary sandbox execution and `/workspace/` file I/O to `ModalSandbox`, while `/skills/` reads are served from the local repository through `FilesystemBackend`. The `workspace/<stem>_<thread_id>/` mirror is handled by the sandbox seeding and lifecycle middleware, not by the `/skills/` backend route. A write-deny `FilesystemPermission` protects `/skills/**`, so agents can load skills but cannot modify them.
+The `CompositeBackend` routes execution and `/workspace/` file I/O to the auto-detected backend (either `ModalSandbox` or `LocalWorkspaceBackend`), while `/skills/` reads are served from the local repository through `FilesystemBackend`. The `workspace/<stem>_<thread_id>/` mirror is handled by the workspace provisioning and lifecycle middleware. A write-deny `FilesystemPermission` protects `/skills/**`, so agents can load skills but cannot modify them.
+
+**Backend auto-detection**: when `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are present in the environment, the system provisions a fresh Modal sandbox per turn. Otherwise it falls back to `LocalWorkspaceBackend`, which runs shell commands directly on your host machine with automatic `/workspace/` → real filesystem path translation.
 
 1. **Profiler** — loads the [profiling skill](skills/profiler_skills/profiler/SKILL.md), inspects `/workspace/dataset.csv` in the sandbox, and writes `/workspace/profile.json` with raw stats and a `diagnosis` list.
 2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaner/SKILL.md), reads `/workspace/profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by writing the cleaned output to `/workspace/dataset.clean.csv`, leaving the original `/workspace/dataset.csv` unchanged.
@@ -59,7 +66,7 @@ The `CompositeBackend` routes ordinary sandbox execution and `/workspace/` file 
 
 - Python 3.12 or higher
 - An API key for your chosen model provider ([Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or [Google](https://aistudio.google.com/))
-- A [Modal](https://modal.com/) account and authenticated credentials on your host machine (run `uv run modal token new` to log in, or set the standard `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` environment variables).
+- *(Optional)* A [Modal](https://modal.com/) account for sandboxed execution. If you set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` environment variables, the tool runs each turn inside a secure ephemeral microVM. Without them, it runs locally via the shell backend.
 
 ### Installation
 
@@ -75,6 +82,14 @@ The `CompositeBackend` routes ordinary sandbox execution and `/workspace/` file 
    ```bash
    uv sync
    ```
+
+   Data science packages (pandas, matplotlib, scipy, seaborn, scikit-learn) are in an optional group — add them with:
+
+   ```bash
+   uv sync --group data-science
+   ```
+
+   *These are only needed if you install from source rather than using the prebuilt sandbox image.*
 
 3. Set up your environment variables:
 
@@ -188,7 +203,7 @@ Before submitting a run, open [**Manage Assistants**](https://docs.langchain.com
 }
 ```
 
-Studio supplies the run/thread metadata. Each turn creates a fresh Modal sandbox, seeds it from `workspace/<stem>_<thread_id>/`, runs the agent, mirrors artifacts back to that directory, and terminates the sandbox. To analyze a different dataset, update the active assistant's `csv_path` and start a new thread. Old thread mirrors can be removed manually from `workspace/` when they are no longer needed.
+Studio supplies the run/thread metadata. Each turn provisions the auto-detected backend (Modal sandbox or local), seeds it from `workspace/<stem>_<thread_id>/`, runs the agent, mirrors artifacts back to that directory, and terminates the sandbox. To analyze a different dataset, update the active assistant's `csv_path` and start a new thread. Old thread mirrors can be removed manually from `workspace/` when they are no longer needed.
 
 ## Try it on more datasets
 
@@ -250,9 +265,14 @@ agentic-data-analytics/
 │   ├── config.py                     ← Settings + get_model() (multi-provider + Modal settings)
 │   ├── config_test.py                ← unit tests for Settings
 │   └── runtime/
+│       ├── backend.py                ← Modal credential detection (has_modal_credentials)
+│       ├── backend_test.py           ← unit tests for backend detection
+│       ├── local_runtime.py          ← LocalWorkspaceBackend for non-Modal execution
+│       ├── local_runtime_test.py     ← unit tests for local runtime
 │       ├── modal_runtime.py          ← sandbox build, seed, and download helpers
 │       ├── modal_runtime_test.py     ← unit tests for sandbox runtime operations
-│       └── workspace.py              ← workspace mirroring and sandbox provisioning logic
+│       ├── workspace.py              ← workspace mirroring and backend provisioning
+│       └── workspace_test.py         ← unit tests for workspace provisioning
 ├── skills/
 │   ├── profiler_skills/profiler/SKILL.md
 │   ├── cleaner_skills/cleaner/SKILL.md
@@ -269,7 +289,7 @@ agentic-data-analytics/
 
 ## Configuration
 
-`.env` selects the model and credentials:
+`.env` selects the model, credentials, and backend:
 
 ```env
 # Default
@@ -293,6 +313,15 @@ ANTHROPIC_API_KEY=...
 
 TEMPERATURE=0.0
 ```
+
+### Backend Auto-Detection
+
+The backend is chosen automatically at runtime:
+
+- **Modal sandbox** — used when `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are set in the environment (or `~/.modal.toml` is configured). Each turn provisions a fresh sandbox.
+- **Local workspace** — used when Modal credentials are absent. Commands run directly on your machine via `LocalWorkspaceBackend`, with `/workspace/` paths transparently translated to the real filesystem.
+
+No configuration is needed — just run `ada`. If you want Modal isolation, authenticate first with `uv run modal token new`.
 
 Optional LangSmith tracing variables are also recognized (see `.env.example`).
 
@@ -332,7 +361,8 @@ corresponding environment variables.
 1. **Feature engineer subagent** — add a `feature_engineer` step downstream of `cleaner` with a skill covering one-hot encoding, scaling, binning, datetime decomposition, and train/test splits. Outputs `/workspace/features.parquet`.
 2. **Human-in-the-loop approval** — wrap `execute` in `interrupt_on={...}` plus a `MemorySaver` checkpointer and a CLI approve/reject/edit prompt loop, so destructive commands require confirmation.
 3. **Cleaning script export** — extend the cleaning skill to emit an auditable `cleaning_pipeline.py` reproducing the applied operations.
-4. **Multi-dataset orchestration** — accept a directory of CSVs and process each in its own concurrent `ModalSandbox`.
+4. **Multi-dataset orchestration** — accept a directory of CSVs and process each in its own concurrent backend instance.
+5. **Custom backend** — implement `BackendProtocol` to target Docker containers, Kubernetes pods, or remote SSH hosts. The `CompositeBackend` routes make it easy to mix backends for different purposes.
 
 ## Resources
 
