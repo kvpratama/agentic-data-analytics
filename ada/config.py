@@ -67,9 +67,11 @@ class Settings(BaseSettings):
             the provider's standard env var.
         temperature: Sampling temperature.
         modal_app_name: Name of the Modal app that owns sandboxes for this
-            project. Created on first use if missing.
+            project. Created on first use if missing. Only applies when using
+            the Modal backend.
         modal_sandbox_timeout: Hard wall-clock cap (seconds) on a single
-            sandbox's lifetime. Defaults to 30 minutes.
+            sandbox's lifetime. Defaults to 30 minutes. Only applies when
+            using the Modal backend.
         retry_max_retries: Maximum number of retries for ModelRetryMiddleware.
         retry_backoff_factor: Exponential backoff factor for ModelRetryMiddleware.
         retry_initial_delay: Initial delay (seconds) for ModelRetryMiddleware.

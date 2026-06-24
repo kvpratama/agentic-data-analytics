@@ -5,8 +5,8 @@ from __future__ import annotations
 import pathlib
 from collections.abc import Awaitable, Callable
 
+from deepagents.backends import BackendProtocol
 from langchain.agents.middleware import AgentMiddleware
-from langchain_modal import ModalSandbox
 
 from ada.runtime.modal_runtime import download_artifacts
 
@@ -17,7 +17,7 @@ class SandboxLifecycleMiddleware(AgentMiddleware):
     def __init__(
         self,
         *,
-        backend: ModalSandbox,
+        backend: BackendProtocol,
         mirror_root: pathlib.Path,
         terminate: Callable[[], Awaitable[None]],
         downloader: Callable[..., Awaitable[list[pathlib.Path]]] = download_artifacts,
@@ -25,9 +25,9 @@ class SandboxLifecycleMiddleware(AgentMiddleware):
         """Initialize the middleware.
 
         Args:
-            backend: The live Modal sandbox backend used by the agent turn.
+            backend: The backend used by the agent turn.
             mirror_root: Host-side thread mirror directory to receive artifacts.
-            terminate: Async callable that releases the real Modal sandbox.
+            terminate: Async callable that releases the sandbox/backend.
             downloader: Async artifact download function. Injectable for tests.
         """
         super().__init__()

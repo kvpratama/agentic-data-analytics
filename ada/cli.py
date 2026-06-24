@@ -367,8 +367,8 @@ async def run_agent_turn(session: Session, user_text: str) -> None:
     """Run a single agent turn end-to-end.
 
     Catches errors from provisioning, graph construction, or streaming and prints
-    them to the console so the REPL stays alive. If a Modal sandbox was provisioned
-    but the turn fails before its lifecycle middleware can release it, the sandbox
+    them to the console so the REPL stays alive. If a sandbox was provisioned
+    but the turn fails before its lifecycle middleware can release it, the backend
     is terminated explicitly here.
 
     Args:

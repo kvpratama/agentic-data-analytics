@@ -8,6 +8,7 @@ import pytest
 from langchain_modal import ModalSandbox
 
 from ada.config import Settings
+from ada.runtime.local_runtime import LocalWorkspaceBackend
 from ada.runtime.workspace import (
     SandboxResources,
     bootstrap_mirror,
@@ -102,6 +103,7 @@ async def test_provision_workspace_creates_fresh_sandbox_and_seeds_first_turn(
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
+        patch("ada.runtime.workspace.has_modal_credentials", return_value=True),
         patch("ada.runtime.workspace._project_root", return_value=tmp_path),
         patch("ada.runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
         patch(
@@ -130,6 +132,7 @@ async def test_provision_workspace_terminates_sandbox_if_seeding_fails(
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
+        patch("ada.runtime.workspace.has_modal_credentials", return_value=True),
         patch("ada.runtime.workspace._project_root", return_value=tmp_path),
         patch("ada.runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
         patch("ada.runtime.workspace.create_sandbox", new=AsyncMock(return_value=resources)),
@@ -163,6 +166,7 @@ async def test_provision_workspace_reuploads_existing_mirror_on_followup(
     resources = SandboxResources(backend=backend, terminate=terminate)
 
     with (
+        patch("ada.runtime.workspace.has_modal_credentials", return_value=True),
         patch("ada.runtime.workspace._project_root", return_value=tmp_path),
         patch("ada.runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync),
         patch(
@@ -174,3 +178,24 @@ async def test_provision_workspace_reuploads_existing_mirror_on_followup(
 
     create.assert_awaited_once()
     seed.assert_awaited_once_with(backend, mirror_root=mirror)
+
+
+async def test_provision_workspace_uses_local_when_no_modal_creds(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without Modal credentials, provision_workspace returns a LocalWorkspaceBackend."""
+    monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
+    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
+    csv = tmp_path / "input.csv"
+    csv.write_bytes(b"a,b\n1,2\n")
+
+    with patch("ada.runtime.workspace._project_root", return_value=tmp_path):
+        with patch("ada.runtime.workspace.asyncio.to_thread", side_effect=_run_to_thread_sync):
+            res, mirror_root = await provision_workspace("input", "thread-1", csv)
+
+    assert isinstance(res.backend, LocalWorkspaceBackend)
+    assert mirror_root == tmp_path / "workspace" / "input_thread-1"
+    # CSV should be at mirror_root/workspace/dataset.csv
+    csv_on_disk = mirror_root / "workspace" / "dataset.csv"
+    assert csv_on_disk.read_bytes() == b"a,b\n1,2\n"

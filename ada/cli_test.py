@@ -890,11 +890,11 @@ async def test_run_agent_turn_catches_provisioning_errors(tmp_path: pathlib.Path
     )
     with patch(
         "ada.cli.provision_workspace",
-        new=AsyncMock(side_effect=RuntimeError("modal down")),
+        new=AsyncMock(side_effect=RuntimeError("provisioning failed")),
     ):
         await run_agent_turn(session, "go")
     rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
-    assert "modal down" in rendered or "error" in rendered.lower()
+    assert "provisioning failed" in rendered or "error" in rendered.lower()
 
 
 async def test_run_agent_turn_terminates_sandbox_when_graph_creation_fails(

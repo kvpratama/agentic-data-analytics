@@ -11,7 +11,7 @@ from ada.agent_middleware import SandboxLifecycleMiddleware
 
 
 def _backend_double() -> MagicMock:
-    """Create a backend double matching ``langchain_modal.ModalSandbox``."""
+    """Create a backend double matching BackendProtocol."""
     backend = MagicMock()
     return backend
 

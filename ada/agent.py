@@ -16,7 +16,6 @@ import asyncio
 import pathlib
 import tempfile
 from collections.abc import Awaitable, Callable
-from typing import cast
 
 from deepagents import FilesystemPermission, create_deep_agent
 from deepagents.backends import BackendProtocol, CompositeBackend, FilesystemBackend, StateBackend
@@ -26,7 +25,6 @@ from langchain.agents.middleware import (
     ModelRetryMiddleware,
 )
 from langchain_core.runnables import RunnableConfig
-from langchain_modal import ModalSandbox
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
@@ -134,10 +132,9 @@ def create_analytics_agent(
         if terminate_sandbox is None:
             msg = "create_analytics_agent requires terminate_sandbox with mirror_root"
             raise ValueError(msg)
-        modal_backend = cast("ModalSandbox", backend)
         middleware.append(
             SandboxLifecycleMiddleware(
-                backend=modal_backend,
+                backend=backend,
                 mirror_root=mirror_root,
                 terminate=terminate_sandbox,
             )

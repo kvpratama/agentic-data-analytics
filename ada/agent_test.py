@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from deepagents.backends import StateBackend
 from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
-from langchain_modal import ModalSandbox
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from ada.agent import create_analytics_agent, make_graph
@@ -47,7 +46,7 @@ def test_create_analytics_agent_wires_retry_and_fallback_middleware_on_orchestra
         retry_backoff_factor=3.0,
         retry_initial_delay=2.5,
     )
-    backend = MagicMock(spec=ModalSandbox)
+    backend = MagicMock()
     mock_create, captured = _capture_create_deep_agent()
 
     with (
@@ -74,7 +73,7 @@ def test_create_analytics_agent_wires_middleware_on_each_subagent() -> None:
         retry_backoff_factor=1.5,
         retry_initial_delay=0.5,
     )
-    backend = MagicMock(spec=ModalSandbox)
+    backend = MagicMock()
     mock_create, captured = _capture_create_deep_agent()
 
     with (
@@ -101,14 +100,14 @@ def test_create_analytics_agent_wires_middleware_on_each_subagent() -> None:
 
 
 def test_create_analytics_agent_passes_backend_through() -> None:
-    """The supplied ModalSandbox backend is forwarded as the CompositeBackend default,
+    """The supplied BackendProtocol backend is forwarded as the CompositeBackend default,
     with a /skills/ route pointing at the host filesystem."""
     import pathlib
 
     from deepagents import FilesystemPermission
     from deepagents.backends import CompositeBackend, FilesystemBackend
 
-    backend = MagicMock(spec=ModalSandbox)
+    backend = MagicMock()
     mock_create, captured = _capture_create_deep_agent()
 
     with (
@@ -142,7 +141,7 @@ def test_create_analytics_agent_passes_backend_through() -> None:
 def test_create_analytics_agent_forwards_checkpointer_to_deep_agent() -> None:
     """A supplied checkpointer is passed straight to create_deep_agent."""
     sentinel = MagicMock(spec=BaseCheckpointSaver, name="checkpointer")
-    backend = MagicMock(spec=ModalSandbox)
+    backend = MagicMock()
     mock_create, captured = _capture_create_deep_agent()
 
     with (
@@ -158,7 +157,7 @@ def test_create_analytics_agent_forwards_checkpointer_to_deep_agent() -> None:
 
 def test_create_analytics_agent_defaults_checkpointer_to_none() -> None:
     """When the caller omits checkpointer, None is forwarded."""
-    backend = MagicMock(spec=ModalSandbox)
+    backend = MagicMock()
     mock_create, captured = _capture_create_deep_agent()
 
     with (
@@ -216,7 +215,7 @@ async def test_make_graph_creates_sandbox_and_graph(tmp_path: pathlib.Path) -> N
     """make_graph calls provision_workspace and passes resources to graph factory."""
     csv = tmp_path / "input.csv"
     csv.write_bytes(b"a,b\n1,2\n")
-    backend = MagicMock(spec=ModalSandbox)
+    backend = MagicMock()
     graph = MagicMock(name="CompiledStateGraph")
 
     from ada.runtime.workspace import SandboxResources

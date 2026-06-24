@@ -5,19 +5,23 @@ import re
 import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import cast
 
 import modal
+from deepagents.backends import BackendProtocol
 from langchain_modal import ModalSandbox
 
 from ada.config import get_settings
+from ada.runtime.backend import has_modal_credentials
+from ada.runtime.local_runtime import LocalWorkspaceBackend
 from ada.runtime.modal_runtime import build_image, seed_sandbox
 
 
 @dataclass(frozen=True)
 class SandboxResources:
-    """Modal backend plus the explicit sandbox teardown callable."""
+    """Sandbox backend plus the explicit sandbox teardown callable."""
 
-    backend: ModalSandbox
+    backend: BackendProtocol
     terminate: Callable[[], Awaitable[None]]
 
 
@@ -100,10 +104,52 @@ async def create_sandbox(thread_id: str) -> SandboxResources:
     )
 
 
+def _setup_local_workspace(ws_dir: pathlib.Path, csv_path: pathlib.Path) -> None:
+    """Set up the local workspace directory and copy the CSV in a synchronous thread.
+
+    Args:
+        ws_dir: Absolute path to the /workspace directory under the mirror root.
+        csv_path: Source CSV path.
+    """
+    ws_dir.mkdir(parents=True, exist_ok=True)
+    dataset_dest = ws_dir / "dataset.csv"
+    if not dataset_dest.exists():
+        shutil.copyfile(csv_path, dataset_dest)
+
+
+async def _provision_local(
+    stem: str,
+    thread_id: str,
+    csv_path: pathlib.Path,
+    mirror_root: pathlib.Path,
+) -> SandboxResources:
+    """Provision a LocalShellBackend workspace instead of a Modal sandbox.
+
+    Args:
+        stem: Dataset filename stem.
+        thread_id: LangGraph thread ID.
+        csv_path: Source CSV path.
+        mirror_root: Host-side per-thread workspace directory.
+
+    Returns:
+        A ``SandboxResources`` with a ``LocalWorkspaceBackend`` and no-op terminate.
+    """
+    # Create /workspace/ subdirectory inside mirror_root so virtual_mode maps correctly
+    ws_dir = mirror_root / "workspace"
+    await asyncio.to_thread(_setup_local_workspace, ws_dir, csv_path)
+    backend = LocalWorkspaceBackend(workspace_path=mirror_root)
+    return SandboxResources(backend=backend, terminate=lambda: _async_noop())
+
+
+async def _async_noop() -> None:
+    """No-op async callable for local backends that have no sandbox lifecycle."""
+    return
+
+
 async def provision_workspace(
     stem: str, thread_id: str, csv_path: pathlib.Path
 ) -> tuple[SandboxResources, pathlib.Path]:
-    """Provision the host mirror and seed a fresh Modal sandbox.
+    """Provision the host mirror and seed either a Modal or local backend.
 
     Args:
         stem: Dataset filename stem (e.g. ``"Titanic-Dataset"``).
@@ -116,12 +162,17 @@ async def provision_workspace(
     mirror_root = get_mirror_root(stem, thread_id)
     await asyncio.to_thread(bootstrap_mirror, mirror_root, csv_path)
 
-    sandbox_resources = await create_sandbox(thread_id)
-    try:
-        await seed_sandbox(sandbox_resources.backend, mirror_root=mirror_root)
-    except Exception:
-        with contextlib.suppress(Exception):
-            await sandbox_resources.terminate()
-        raise
-
-    return sandbox_resources, mirror_root
+    if has_modal_credentials():
+        sandbox_resources = await create_sandbox(thread_id)
+        try:
+            await seed_sandbox(
+                cast(ModalSandbox, sandbox_resources.backend), mirror_root=mirror_root
+            )
+        except Exception:
+            with contextlib.suppress(Exception):
+                await sandbox_resources.terminate()
+            raise
+        return sandbox_resources, mirror_root
+    else:
+        resources = await _provision_local(stem, thread_id, csv_path, mirror_root)
+        return resources, mirror_root
