@@ -36,6 +36,10 @@ execute('python /workspace/_cell.py')
 For one-liners, `execute("python -c '...'")` is fine. Avoid heredocs — they are brittle
 through the LLM's quoting.
 
+**`execute` working directory**: paths inside scripts run via `execute` assume `/workspace/`
+as root, but the shell process may be launched from the repo root instead. If any file
+access inside an `execute` call fails, retry with `./workspace/` prefixes. This does **not**
+apply to `write_file` or other tools — only to code running inside `execute`.
 
 ## Workflow
 

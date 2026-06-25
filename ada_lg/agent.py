@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import pathlib
 from collections.abc import Awaitable, Callable
-from typing import cast
 
 from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
 from deepagents.backends.protocol import BackendProtocol
@@ -15,12 +14,13 @@ from langchain.agents.middleware import (
     ModelRetryMiddleware,
 )
 from langchain_core.runnables import RunnableConfig
-from langchain_modal import ModalSandbox
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from ada.agent_middleware import SandboxLifecycleMiddleware
 from ada.config import get_model, get_model_small, get_settings
+from ada.runtime.local_runtime import LocalWorkspaceBackend, mirror_local_artifacts
+from ada.runtime.modal_runtime import download_artifacts
 from ada.runtime.workspace import provision_workspace
 from ada_lg.lg.agent_factory import build_orchestrator, build_subagent
 from ada_lg.subagents import get_subagent_specs
@@ -135,11 +135,17 @@ def create_analytics_agent(
     orchestrator_middleware = list(base_middleware)
     if mirror_root is not None:
         assert terminate_sandbox is not None  # noqa: S101 — validated above
+        downloader = (
+            mirror_local_artifacts
+            if isinstance(backend, LocalWorkspaceBackend)
+            else download_artifacts
+        )
         orchestrator_middleware.append(
             SandboxLifecycleMiddleware(
-                backend=cast("ModalSandbox", backend),
+                backend=backend,
                 mirror_root=mirror_root,
                 terminate=terminate_sandbox,
+                downloader=downloader,
             )
         )
 

@@ -51,6 +51,11 @@ df = pd.read_csv('/workspace/dataset.csv', nrows=5)
 print(df.shape, df.dtypes)
 ```
 
+**`execute` working directory**: paths inside scripts run via `execute` assume `/workspace/`
+as root, but the shell process may be launched from the repo root instead. If any file
+access inside an `execute` call fails, retry with `./workspace/` prefixes. This does **not**
+apply to `write_file` or other tools — only to code running inside `execute`.
+
 Then apply this judgement:
 
 **Handle directly with `execute`** when:
