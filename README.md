@@ -14,6 +14,9 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
 - **Thread-scoped follow-ups** — LangGraph Studio/API threads keep chat history, while host-side mirrors under `workspace/<dataset-stem>_<thread_id>/` preserve `/workspace/` artifacts across turns.
 - **Multi-provider model configuration** — swap between Anthropic, OpenAI, or Google with a single `.env` change.
 
+> [!WARNING]
+> **The local backend executes agent-generated code directly on your host with no isolation.** When Modal credentials are absent, `LocalWorkspaceBackend` runs arbitrary shell commands with your user's permissions — it can read, modify, or delete files outside `/workspace/`, make network requests, and so on. Only use the local backend with datasets and prompts you trust. For untrusted input, configure Modal credentials so each turn runs inside an isolated microVM.
+
 ## Architecture
 
 ```text
@@ -34,27 +37,25 @@ A multi-subagent **Exploratory Data Analysis (EDA)** workflow powered by [Deep A
               │     CompositeBackend     │
               │ default → auto-detected  │
               │ /skills → Filesystem     │
-              ╰──────┬──────────────┬────╯
+              ╰──────┬───────────────────╯
                      │
            ┌─────────┴──────────┐
            ▼                    ▼
-╭─────────────────────╮  ╭─────────────────────╮
+╭─────────────────────╮  ╭──────────────────────╮
 │   ModalSandbox      │  │ LocalWorkspaceBackend│
 │ (Modal credentials  │  │ (no Modal — local    │
 │  present)           │  │  shell execution)    │
 │ /workspace/dataset  │  │ /workspace/ → real   │
 │   ..seeded from..   │  │   path translation   │
 ╰─────────┬───────────╯  ╰──────────┬───────────╯
-           │                         │
-           ▼                         ▼
+          │                         │
+          ▼                         ▼
         ╭───────────────────────────────╮
         │ workspace/<stem>_<thread_id>/ │  ← thread-scoped persistence
         ╰───────────────────────────────╯
 ```
 
-The `CompositeBackend` routes execution and `/workspace/` file I/O to the auto-detected backend (either `ModalSandbox` or `LocalWorkspaceBackend`), while `/skills/` reads are served from the local repository through `FilesystemBackend`. The `workspace/<stem>_<thread_id>/` mirror is handled by the workspace provisioning and lifecycle middleware. A write-deny `FilesystemPermission` protects `/skills/**`, so agents can load skills but cannot modify them.
-
-**Backend auto-detection**: when `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are present in the environment, the system provisions a fresh Modal sandbox per turn. Otherwise it falls back to `LocalWorkspaceBackend`, which runs shell commands directly on your host machine with automatic `/workspace/` → real filesystem path translation.
+The `CompositeBackend` routes execution and `/workspace/` file I/O to the auto-detected backend (either `ModalSandbox` or `LocalWorkspaceBackend`), while `/skills/` reads are served from the local repository through `FilesystemBackend`. The `workspace/<stem>_<thread_id>/` mirror is handled by the workspace provisioning and lifecycle middleware. A write-deny `FilesystemPermission` protects `/skills/**`, so agents can load skills but cannot modify them. (See [Backend Auto-Detection](#backend-auto-detection) for how the backend is selected.)
 
 1. **Profiler** — loads the [profiling skill](skills/profiler_skills/profiler/SKILL.md), inspects `/workspace/dataset.csv` in the sandbox, and writes `/workspace/profile.json` with raw stats and a `diagnosis` list.
 2. **Cleaner** — loads the [cleaning skill](skills/cleaner_skills/cleaner/SKILL.md), reads `/workspace/profile.json`, and applies cleaning steps (fill nulls, cast dtypes, clip outliers, drop duplicates, etc.) by writing the cleaned output to `/workspace/dataset.clean.csv`, leaving the original `/workspace/dataset.csv` unchanged.
@@ -89,7 +90,7 @@ The `CompositeBackend` routes execution and `/workspace/` file I/O to the auto-d
    uv sync --group data-science
    ```
 
-   *These are only needed if you install from source rather than using the prebuilt sandbox image.*
+   *Required for the **local backend**, which runs analysis code directly on your host. With the Modal backend these packages are baked into the sandbox image, so installing them locally is optional.*
 
 3. Set up your environment variables:
 
@@ -309,7 +310,7 @@ ANTHROPIC_API_KEY=...
 
 # Optional Modal App configuration overrides
 # MODAL_APP_NAME=agentic-data-analytics
-# MODAL_SANDBOX_TIMEOUT=1200
+# MODAL_SANDBOX_TIMEOUT=1800
 
 TEMPERATURE=0.0
 ```
@@ -318,10 +319,13 @@ TEMPERATURE=0.0
 
 The backend is chosen automatically at runtime:
 
-- **Modal sandbox** — used when `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are set in the environment (or `~/.modal.toml` is configured). Each turn provisions a fresh sandbox.
+- **Modal sandbox** — used when `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are set in the environment. Each turn provisions a fresh sandbox.
 - **Local workspace** — used when Modal credentials are absent. Commands run directly on your machine via `LocalWorkspaceBackend`, with `/workspace/` paths transparently translated to the real filesystem.
 
-No configuration is needed — just run `ada`. If you want Modal isolation, authenticate first with `uv run modal token new`.
+> [!WARNING]
+> The local backend runs agent-generated commands on your host **without sandbox isolation**. The agent has the same permissions as your user account and can affect files anywhere on your system, not just `/workspace/`. Prefer the Modal backend when working with untrusted datasets or prompts.
+
+No configuration is needed — just run `ada`. If you want Modal isolation, ensure `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are present in your environment before starting `ada`.
 
 Optional LangSmith tracing variables are also recognized (see `.env.example`).
 
@@ -352,9 +356,10 @@ Resolution order is **OS environment > `./.env` in cwd >
 `~/.config/ada/config.env`**, with `override=False` at each step. Existing keys
 are never replaced.
 
-Modal credentials (`MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`) are read by the
-Modal SDK directly from `~/.modal.toml` (created by `modal token new`) or the
-corresponding environment variables.
+Modal credentials are detected by checking the `MODAL_TOKEN_ID` and
+`MODAL_TOKEN_SECRET` environment variables. The Modal SDK can also read
+credentials from `~/.modal.toml` (created by `modal token new`), but for
+auto-detection to activate the Modal backend, the env vars must be set.
 
 ## Extending This Example
 
