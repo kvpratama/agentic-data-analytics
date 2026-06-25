@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import pathlib
 import shutil
+import sys
 
 from deepagents.backends.local_shell import ExecuteResponse, LocalShellBackend
 
@@ -42,9 +44,32 @@ class LocalWorkspaceBackend(LocalShellBackend):
             virtual_mode=True,
             timeout=timeout,
             max_output_bytes=max_output_bytes,
-            inherit_env=True,
-            # env={"PATH": str(self.workspace_path / ".." / ".." / ".venv" / "bin")},
+            inherit_env=False,
+            env=self._get_sanitized_env(),
         )
+
+    @staticmethod
+    def _get_sanitized_env() -> dict[str, str]:
+        """Build a minimal environment for model-run shell commands.
+
+        Avoids inheriting the full host environment (which may contain API keys
+        and other secrets) by exposing only ``PATH`` (with the active
+        virtualenv's ``bin`` directory prepended) and ``HOME``.
+
+        Returns:
+            Mapping of the whitelisted environment variables.
+        """
+        # Use the executable path as-is (do not resolve symlinks): the venv's
+        # ``python`` is typically a symlink to the system interpreter, so
+        # resolving it would point PATH at the system bin instead of the venv
+        # bin. Avoiding ``resolve()`` also prevents a blocking ``os.readlink``
+        # syscall on the event loop under ASGI servers (LangGraph dev).
+        venv_bin = pathlib.Path(sys.executable).parent
+        system_path = "/usr/local/bin:/usr/bin:/bin"
+        return {
+            "PATH": f"{venv_bin}{os.pathsep}{system_path}",
+            "HOME": os.environ.get("HOME", str(pathlib.Path.home())),
+        }
 
     def execute(
         self,

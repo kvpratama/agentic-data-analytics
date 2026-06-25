@@ -63,6 +63,28 @@ def test_read_file_via_virtual_mode(tmp_path: pathlib.Path) -> None:
     assert result.file_data is not None
 
 
+def test_sanitized_env_only_exposes_path_and_home(tmp_path: pathlib.Path) -> None:
+    """The backend env is restricted to PATH/HOME and never inherits host secrets."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    backend = LocalWorkspaceBackend(workspace_path=ws)
+    assert set(backend._env) == {"PATH", "HOME"}
+    # venv bin is prepended so python/pandas resolve.
+    assert backend._env["PATH"].startswith(str(pathlib.Path(sys.executable).parent))
+
+
+def test_execute_does_not_leak_host_secrets(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """A secret in the host environment is not visible to execute commands."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    backend = LocalWorkspaceBackend(workspace_path=ws)
+    assert "ANTHROPIC_API_KEY" not in backend._env
+    result = backend.execute("echo key=$ANTHROPIC_API_KEY")
+    assert result.exit_code == 0, result.output
+    assert "sk-should-not-leak" not in result.output
+
+
 async def test_mirror_local_artifacts_copies_workspace_outputs_to_root(
     tmp_path: pathlib.Path,
 ) -> None:
