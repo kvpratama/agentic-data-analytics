@@ -138,7 +138,7 @@ async def _provision_local(
     ws_dir = mirror_root / "workspace"
     await asyncio.to_thread(_setup_local_workspace, ws_dir, csv_path)
     backend = LocalWorkspaceBackend(workspace_path=mirror_root)
-    return SandboxResources(backend=backend, terminate=lambda: _async_noop())
+    return SandboxResources(backend=backend, terminate=_async_noop)
 
 
 async def _async_noop() -> None:

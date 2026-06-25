@@ -894,7 +894,7 @@ async def test_run_agent_turn_catches_provisioning_errors(tmp_path: pathlib.Path
     ):
         await run_agent_turn(session, "go")
     rendered = " ".join(repr(c.args[0]) for c in console.print.call_args_list)
-    assert "provisioning failed" in rendered or "error" in rendered.lower()
+    assert "Agent error: provisioning failed" in rendered
 
 
 async def test_run_agent_turn_terminates_sandbox_when_graph_creation_fails(
